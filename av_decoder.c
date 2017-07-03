@@ -1,6 +1,6 @@
 /* File to extract audio from video   */
 #include <stdio.h>
-#include <libavfilter/avcodec.h>
+//#include <libavfilter/avcodec.h>
 #include <libavformat/avformat.h>
 #include <math.h>
 #include <unistd.h>
@@ -18,11 +18,11 @@
 
 static AVFormatContext *fmt_ctx = NULL;
 static AVCodecContext *dec_ctx;
-static AVFilterContext *buffersink_ctx;
-static AVFilterContext *buffersrc_ctx;
 static int audio_stream_index = -1;
 static AVFilterGraph *graph_resample=NULL;
+static AVFilterGraph *graph_window=NULL;
 static AVFilterContext *src=NULL,*sink=NULL;
+static AVFilterContext *Wsrc=NULL,*Wsink=NULL;
 enum AVSampleFormat INPUT_SAMPLE_FMT = -1;
 uint64_t INPUT_SAMPLERATE = 0;
 uint64_t INPUT_CHANNEL_LAYOUT = 0;
@@ -31,7 +31,7 @@ char *orig_video_name = NULL;
 char *edited_video_name = NULL;
 
 //taken from ffmpeg-filter_audio.c https://www.ffmpeg.org/doxygen/2.2/filter_audio_8c-example.html
-static int init_filter_graph(AVFilterGraph **graph, AVFilterContext **src, AVFilterContext **sink)
+static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **src, AVFilterContext **sink)
 {
   AVFilterGraph *filter_graph;
   AVFilterContext *abuffer_ctx;
@@ -124,39 +124,6 @@ static int init_filter_graph(AVFilterGraph **graph, AVFilterContext **src, AVFil
     fprintf(stderr, "Could not initialize the ashowinfo instance.\n");
     return err;
   }
-
-  fftfilt = avfilter_get_by_name("afftfilt");
-  if (!fftfilt) {
-    fprintf(stderr, "Could not find the fftfilt filter.\n");
-    return AVERROR_FILTER_NOT_FOUND;
-  }
-  fftfilt_ctx = avfilter_graph_alloc_filter(filter_graph, fftfilt, "afftfilt");
-  if (!fftfilt_ctx) {
-    fprintf(stderr, "Could not allocate the fftfilt instance.\n");
-    return AVERROR(ENOMEM);
-  }
-  snprintf(options_str, sizeof(options_str),"win_size=%s:win_func=%s:overlap=%f","w2048","hanning",0.96875);
-  err = avfilter_init_str(fftfilt_ctx, options_str);
-  if (err < 0) {
-    fprintf(stderr, "Could not initialize the fftfilt filter.\n");
-    return err;
-  }
-  
-  ashowinfo2 = avfilter_get_by_name("ashowinfo");
-  if (!ashowinfo2) {
-    fprintf(stderr, "Could not find the ashowinfo filter.\n");
-    return AVERROR_FILTER_NOT_FOUND;
-  }
-  ashowinfo2_ctx = avfilter_graph_alloc_filter(filter_graph, ashowinfo2, "ashowinfo");
-  if (!ashowinfo2_ctx) {
-    fprintf(stderr, "Could not allocate the ashowinfo instance.\n");
-    return AVERROR(ENOMEM);
-  }
-  err = avfilter_init_str(ashowinfo2_ctx, NULL);
-  if (err < 0) {
-    fprintf(stderr, "Could not initialize the ashowinfo instance.\n");
-    return err;
-  }
     
   /* Finally create the abuffersink filter;
    * it will be used to get the filtered data out of the graph. */
@@ -188,19 +155,8 @@ static int init_filter_graph(AVFilterGraph **graph, AVFilterContext **src, AVFil
   if (err < 0) {
     fprintf(stderr,"Error connecting filters aformat and ashowinfo %d error\n",err);
     return err;
-  }
-  err = avfilter_link(ashowinfo_ctx, 0, fftfilt_ctx, 0);
-  if (err < 0) {
-    fprintf(stderr, "Error connecting filters ashowinfo and showfreqs %d error\n",err);
-    return err;
-  }
-  
-  err = avfilter_link(fftfilt_ctx, 0, ashowinfo2_ctx, 0);
-  if (err < 0) {
-    fprintf(stderr, "Error connecting filters ashowinfo and showfreqs %d error\n",err);
-    return err;
-  }
-  err = avfilter_link(ashowinfo2_ctx, 0, abuffersink_ctx, 0);
+  } 
+  err = avfilter_link(ashowinfo_ctx, 0, abuffersink_ctx, 0);
   if (err < 0) {
     fprintf(stderr, "Error connecting filters ashowinfo and buffersink %d error\n",err);
     return err;
@@ -212,11 +168,149 @@ static int init_filter_graph(AVFilterGraph **graph, AVFilterContext **src, AVFil
     fprintf(stderr, "Error configuring the filter graph\n");
     return err;
   }
-  av_buffersink_set_frame_size(abuffersink_ctx, 2048);
+  av_buffersink_set_frame_size(abuffersink_ctx, 64);
   *graph = filter_graph;
   *src   = abuffer_ctx;
   *sink  = abuffersink_ctx;
   return 0;
+}
+
+/*
+Initialise the filter graph used for windowing.
+ */
+static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **src, AVFilterContext **sink)
+{
+  AVFilterGraph *filter_graph;
+  AVFilterContext *abuffer_ctx;
+  AVFilter        *abuffer;
+  AVFilterContext *fftfilt_ctx;
+  AVFilter        *fftfilt;
+  AVFilterContext *ashowinfo_ctx;
+  AVFilter        *ashowinfo;
+  AVFilterContext *abuffersink_ctx;
+  AVFilter        *abuffersink;
+  AVDictionary *options_dict = NULL;
+  uint8_t options_str[1024];
+  uint8_t ch_layout[64];
+  int err;
+  char errstr[256];
+
+  /* Create a new filtergraph, which will contain all the filters. */
+  filter_graph = avfilter_graph_alloc();
+  if (!filter_graph) {
+    fprintf(stderr, "Unable to create filter graph.\n");
+    return AVERROR(ENOMEM);
+  }
+  
+  /* Create the abuffer filter;
+   * it will be used for feeding the data into the graph. */
+  abuffer = avfilter_get_by_name("abuffer");
+   if (abuffer == NULL) {
+    fprintf(stderr, "Could not find the abuffer filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  abuffer_ctx = avfilter_graph_alloc_filter(filter_graph, abuffer, "src");
+  if (abuffer_ctx == NULL) {
+    fprintf(stderr, "Could not allocate the abuffer instance.\n");
+    return AVERROR(ENOMEM);
+  }
+  
+  /* Set the filter options through the AVOptions API. */
+  av_get_channel_layout_string(ch_layout, sizeof(ch_layout), 0, AV_CH_LAYOUT_MONO);
+  err = av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
+  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d %s\n",err);
+  err = av_opt_set(abuffer_ctx, "sample_fmt", av_get_sample_fmt_name(AV_SAMPLE_FMT_FLT), AV_OPT_SEARCH_CHILDREN);
+  fprintf(stderr,"DEBUG: av_opt_set for sample_fmt returned %d\n",err);
+  err = av_opt_set_int(abuffer_ctx, "sample_rate", 5512, AV_OPT_SEARCH_CHILDREN);
+  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d\n",err);
+  /* Now initialize the filter; we pass NULL options, since we have already
+   * set all the options above. */
+  err = avfilter_init_str(abuffer_ctx, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the abuffer filter.\n");
+    return err;
+  }
+  
+  fftfilt = avfilter_get_by_name("afftfilt");
+  if (!fftfilt) {
+    fprintf(stderr, "Could not find the fftfilt filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  fftfilt_ctx = avfilter_graph_alloc_filter(filter_graph, fftfilt, "afftfilt");
+  if (!fftfilt_ctx) {
+    fprintf(stderr, "Could not allocate the fftfilt instance.\n");
+    return AVERROR(ENOMEM);
+  }
+  snprintf(options_str, sizeof(options_str),"win_size=%s:win_func=%s:overlap=%f","w2048","hanning",0.96875);
+  err = avfilter_init_str(fftfilt_ctx, options_str);
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the fftfilt filter.\n");
+    return err;
+  }
+
+  ashowinfo = avfilter_get_by_name("ashowinfo");
+  if (!ashowinfo) {
+    fprintf(stderr, "Could not find the ashowinfo filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  ashowinfo_ctx = avfilter_graph_alloc_filter(filter_graph, ashowinfo, "Hanning window");
+  if (!ashowinfo_ctx) {
+    fprintf(stderr, "Could not allocate the ashowinfo instance.\n");
+    return AVERROR(ENOMEM);
+  }
+  err = avfilter_init_str(ashowinfo_ctx, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the ashowinfo instance.\n");
+    return err;
+  }
+    
+  /* Finally create the abuffersink filter;
+   * it will be used to get the filtered data out of the graph. */
+  abuffersink = avfilter_get_by_name("abuffersink");
+  if (!abuffersink) {
+    fprintf(stderr, "Could not find the abuffersink filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  abuffersink_ctx = avfilter_graph_alloc_filter(filter_graph, abuffersink, "sink");
+  if (!abuffersink_ctx) {
+    fprintf(stderr, "Could not allocate the abuffersink instance.\n");
+    return AVERROR(ENOMEM);
+  }
+  /* This filter takes no options. */
+  err = avfilter_init_str(abuffersink_ctx, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the abuffersink instance.\n");
+    return err;
+  }
+
+  /* Link all filters together now */
+  err = avfilter_link(abuffer_ctx, 0, fftfilt_ctx, 0);
+  if(err < 0) {
+    fprintf(stderr, "Error connecting filters abuffer and fftfilt %d error\n",err);
+    return err;
+  }
+  err = avfilter_link(fftfilt_ctx, 0, ashowinfo_ctx, 0);
+  if (err < 0) {
+    fprintf(stderr,"Error connecting filters aformat and ashowinfo %d error\n",err);
+    return err;
+  }
+  err = avfilter_link(ashowinfo_ctx, 0, abuffersink_ctx, 0);
+  if (err < 0) {
+    fprintf(stderr, "Error connecting filters ashowinfo and buffersink %d error\n",err);
+    return err;
+  }
+
+  /* Configure the graph. */
+  err = avfilter_graph_config(filter_graph, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Error configuring the filter graph\n");
+    return err;
+  }
+  *graph = filter_graph;
+  *src   = abuffer_ctx;
+  *sink  = abuffersink_ctx;
+  return 0;
+
 }
 
 /*
@@ -243,12 +337,17 @@ int init_decoder(char *filename1,char *filename2,uint8_t file_select)
     edited_video_name = filename2;
   } 
   // add any other settings from outer file in this function
-  err = init_filter_graph(&graph_resample, &src, &sink);
+  err = init_filter_graph_resample(&graph_resample, &src, &sink);
   if(err != 0){
-    fprintf(stderr,"ERROR: Not able to initialize input parameters %d\n",err);
+    fprintf(stderr,"ERROR: Not able to initialize filter_graph for resampling %d\n",err);
     return err;
     }
   else {
+    err = init_filter_graph_windowing(&graph_window, &Wsrc, &Wsink);
+    if(err < 0){
+      fprintf(stderr,"ERROR: Not able to initialise filter_graph for windowing %d\n",err);
+      return err;
+    }
     fprintf(stderr,"DEBUG: Filter graph initialisation completed\n");
   }
   return 0; 
@@ -389,14 +488,15 @@ arg: index           Index of subtitle block
 */
 void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
 {
-  int64_t start_pts = (time_to_seek_ms/1000) * INPUT_TIMEBASE.den ;
-  int64_t end_pts = ((time_to_seek_ms + 1500)/1000) * INPUT_TIMEBASE.den;
+  int64_t start_pts = (time_to_seek_ms/1000) * INPUT_TIMEBASE.den;
+  int64_t end_pts = ((time_to_seek_ms + GRANUALITY)/1000) * INPUT_TIMEBASE.den;
   int i = 0, count = 0,temp = 0,out_count = 0,in_count = 0;
-  uint8_t *OUTPUT_SAMPLES = NULL;
+  uint8_t *OUTPUT_SAMPLES = NULL,frame_count=0;
   AVPacket pkt;
   uint8_t *in;
   int got_frame,ret=0;
   AVFrame *frame = av_frame_alloc();
+  AVFrame *frame_2048 = av_frame_alloc();
   int size,len,buf_size;
   uint64_t output_ch_layout = av_get_channel_layout("mono");
   enum AVSampleFormat src_sample_fmt;
@@ -452,18 +552,37 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
       }
     }
  }while(frame->pts < end_pts);
-  
+
+  // make frame available for overlapping and windowing
+  // frame is size of 64 samples already.
+  // feed 32 frames to filter_graph_window and collect one 2048 sample frame out of it.
+  // This process is repeated for every frame thus, 128 times we get 2048 frames.
+  // Algo: 1. Fill source buffer with 32 frames
+  //       2. Remove one frame and add another and get 2048 frame.
+
+  // Fill source buffer
   while((ret = av_buffersink_get_frame(sink,frame)) >= 0){
-    // make frame available for overlapping and windowing
-    // frame size is set for 64 samples in init_filter_graph.
-    if(ret < 0){
-      av_strerror(ret,errstr,128);
-      fprintf(stderr,"av_buffer_get_frame returns %d %s\n",ret,errstr);
-      break;
+    if(frame_count < 64){ //feed frames to window graph
+      err = av_buffersrc_add_frame(Wsrc, frame);
+      frame_count++;
+      if(err < 0) {
+	av_frame_unref(frame);
+	fprintf(stderr,"Error adding frame to source buffer\n");
+	break;
+      }
     }
   }
+
+  // Remove a frame and add other while getting 2048 hanning window
+    ret = av_buffersink_get_frame(Wsink,frame_2048);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,"No frame in buffer sink (Wsink) %s\n",errstr);
+      return ret;
+    }
   
   av_frame_free(&frame);
+  av_frame_free(&frame_2048);
   return;
 }
 
@@ -472,4 +591,5 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
 void close_filter()
 {
   avfilter_graph_free(&graph_resample);
+  avfilter_graph_free(&graph_window);
 }
