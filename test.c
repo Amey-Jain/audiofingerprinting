@@ -1,5 +1,6 @@
 #include <stdio.h> 
 #include <string.h>
+#include <stdlib.h>
 #include "sub_reader.h"
 #include "av_decoder.h"
 #include "config.h"
@@ -24,30 +25,34 @@ void test_pts_to_mseconds(char *input_str)
   
 }
 
-void test_av_decoder(char *filename,int frame_pts)
+void test_av_decoder(char *filename,float frame_pts)
 {
-  fprintf(stderr,"%s received params %s %d\n",__FUNCTION__,filename,frame_pts);
+  fprintf(stderr,"%s received params %s %f\n",__FUNCTION__,filename,frame_pts);
   int ret = init_decoder(filename,NULL,1);
   process_frame_by_pts(0,frame_pts);
 } 
 
 int main(int argc, char *argv[])
 {
-  char *input_str=NULL;
-  if(argc<3)
+  int i,j,k,temp_len;
+  char *input_str=NULL,*temp=NULL;
+  if(argc<4)
     {
       printf("Usage: ./test flags <input>\n-f:\ttest reader, -f followed by file name\n-t:\ttest pts_to_seconds\n-d:\ttest avdecoder, -d <input video file> <time>\n");
       return -1;
     }
-  else
-    input_str = argv[2];
-  
+  else if(argc == 4)
+    {
+      input_str = argv[2]; 
+    }  
   if(strcmp(argv[1],"-f") == 0)
     test_reader(input_str);
   else if(strcmp(argv[1],"-t") == 0)
     test_pts_to_mseconds(input_str);
-  else if(strcmp(argv[1],"-d") == 0)
+  else if(strcmp(argv[1],"-d") == 0 && argv[3] != NULL)
     test_av_decoder(input_str,atoi(argv[3]));
-    
+  else
+    printf("Usage: ./test flags <input>\n-f:\ttest reader, -f followed by file name\n-t:\ttest pts_to_seconds\n-d:\ttest avdecoder, -d <input video file> <time>\n");
+
   return 0;
 }

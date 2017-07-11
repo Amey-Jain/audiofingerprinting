@@ -1,6 +1,5 @@
 /* File to extract audio from video   */
 #include <stdio.h>
-//#include <libavfilter/avcodec.h>
 #include <libavformat/avformat.h>
 #include <math.h>
 #include <unistd.h>
@@ -13,6 +12,7 @@
 #include <libavutil/frame.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavfilter/bufferqueue.h>
 #include "av_decoder.h"
 #include "config.h"
 
@@ -20,8 +20,10 @@ static AVFormatContext *fmt_ctx = NULL;
 static AVCodecContext *dec_ctx;
 static int audio_stream_index = -1;
 static AVFilterGraph *graph_resample=NULL;
-static AVFilterGraph *graph_window=NULL;
+static AVFilterGraph *graph_frame_2048=NULL;
+static AVFilterGraph *graph_hann=NULL;
 static AVFilterContext *src=NULL,*sink=NULL;
+static AVFilterContext *Fsrc=NULL,*Fsink=NULL;
 static AVFilterContext *Wsrc=NULL,*Wsink=NULL;
 enum AVSampleFormat INPUT_SAMPLE_FMT = -1;
 uint64_t INPUT_SAMPLERATE = 0;
@@ -44,8 +46,6 @@ static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **s
   AVFilter        *ashowinfo;
   AVFilterContext *fftfilt_ctx;
   AVFilter        *fftfilt;
-  AVFilterContext *ashowinfo2_ctx;
-  AVFilter        *ashowinfo2;
 
   AVDictionary *options_dict = NULL;
   uint8_t options_str[1024];
@@ -71,8 +71,6 @@ static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **s
     fprintf(stderr, "Could not allocate the abuffer instance.\n");
     return AVERROR(ENOMEM);
   }
-  
-  /* Set the filter options through the AVOptions API. */
   av_get_channel_layout_string(ch_layout, sizeof(ch_layout), 0, INPUT_CHANNEL_LAYOUT);
   err = av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
   fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d %s\n",err);
@@ -82,7 +80,7 @@ static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **s
   fprintf(stderr,"DEBUG: av_opt_set for time_base returned %d\n",err);
   err = av_opt_set_int(abuffer_ctx, "sample_rate", INPUT_SAMPLERATE, AV_OPT_SEARCH_CHILDREN);
   fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d\n",err);
-  /* Now initialize the filter; we pass NULL options, since we have already
+  /* Now initialize the filter; we pass NULL options, since we have already                                                                                               
    * set all the options above. */
   err = avfilter_init_str(abuffer_ctx, NULL);
   if (err < 0) {
@@ -114,7 +112,7 @@ static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **s
     fprintf(stderr, "Could not find the ashowinfo filter.\n");
     return AVERROR_FILTER_NOT_FOUND;
   }
-  ashowinfo_ctx = avfilter_graph_alloc_filter(filter_graph, ashowinfo, "ashowinfo");
+  ashowinfo_ctx = avfilter_graph_alloc_filter(filter_graph, ashowinfo, "ashowinfo_framing");
   if (!ashowinfo_ctx) {
     fprintf(stderr, "Could not allocate the ashowinfo instance.\n");
     return AVERROR(ENOMEM);
@@ -178,13 +176,11 @@ static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **s
 /*
 Initialise the filter graph used for windowing.
  */
-static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **src, AVFilterContext **sink)
+static int init_filter_graph_framing_2048(AVFilterGraph **graph, AVFilterContext **src, AVFilterContext **sink)
 {
   AVFilterGraph *filter_graph;
   AVFilterContext *abuffer_ctx;
   AVFilter        *abuffer;
-  AVFilterContext *fftfilt_ctx;
-  AVFilter        *fftfilt;
   AVFilterContext *ashowinfo_ctx;
   AVFilter        *ashowinfo;
   AVFilterContext *abuffersink_ctx;
@@ -209,7 +205,7 @@ static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **
     fprintf(stderr, "Could not find the abuffer filter.\n");
     return AVERROR_FILTER_NOT_FOUND;
   }
-  abuffer_ctx = avfilter_graph_alloc_filter(filter_graph, abuffer, "src");
+  abuffer_ctx = avfilter_graph_alloc_filter(filter_graph, abuffer, "Fsrc");
   if (abuffer_ctx == NULL) {
     fprintf(stderr, "Could not allocate the abuffer instance.\n");
     return AVERROR(ENOMEM);
@@ -230,30 +226,13 @@ static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **
     fprintf(stderr, "Could not initialize the abuffer filter.\n");
     return err;
   }
-  
-  fftfilt = avfilter_get_by_name("afftfilt");
-  if (!fftfilt) {
-    fprintf(stderr, "Could not find the fftfilt filter.\n");
-    return AVERROR_FILTER_NOT_FOUND;
-  }
-  fftfilt_ctx = avfilter_graph_alloc_filter(filter_graph, fftfilt, "afftfilt");
-  if (!fftfilt_ctx) {
-    fprintf(stderr, "Could not allocate the fftfilt instance.\n");
-    return AVERROR(ENOMEM);
-  }
-  snprintf(options_str, sizeof(options_str),"win_size=%s:win_func=%s:overlap=%f","w2048","hanning",0.96875);
-  err = avfilter_init_str(fftfilt_ctx, options_str);
-  if (err < 0) {
-    fprintf(stderr, "Could not initialize the fftfilt filter.\n");
-    return err;
-  }
 
   ashowinfo = avfilter_get_by_name("ashowinfo");
   if (!ashowinfo) {
     fprintf(stderr, "Could not find the ashowinfo filter.\n");
     return AVERROR_FILTER_NOT_FOUND;
   }
-  ashowinfo_ctx = avfilter_graph_alloc_filter(filter_graph, ashowinfo, "Hanning window");
+  ashowinfo_ctx = avfilter_graph_alloc_filter(filter_graph, ashowinfo, "ashowinfo_windowing");
   if (!ashowinfo_ctx) {
     fprintf(stderr, "Could not allocate the ashowinfo instance.\n");
     return AVERROR(ENOMEM);
@@ -263,7 +242,6 @@ static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **
     fprintf(stderr, "Could not initialize the ashowinfo instance.\n");
     return err;
   }
-    
   /* Finally create the abuffersink filter;
    * it will be used to get the filtered data out of the graph. */
   abuffersink = avfilter_get_by_name("abuffersink");
@@ -271,7 +249,7 @@ static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **
     fprintf(stderr, "Could not find the abuffersink filter.\n");
     return AVERROR_FILTER_NOT_FOUND;
   }
-  abuffersink_ctx = avfilter_graph_alloc_filter(filter_graph, abuffersink, "sink");
+  abuffersink_ctx = avfilter_graph_alloc_filter(filter_graph, abuffersink, "Fsink");
   if (!abuffersink_ctx) {
     fprintf(stderr, "Could not allocate the abuffersink instance.\n");
     return AVERROR(ENOMEM);
@@ -284,14 +262,9 @@ static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **
   }
 
   /* Link all filters together now */
-  err = avfilter_link(abuffer_ctx, 0, fftfilt_ctx, 0);
+  err = avfilter_link(abuffer_ctx, 0, ashowinfo_ctx, 0);
   if(err < 0) {
     fprintf(stderr, "Error connecting filters abuffer and fftfilt %d error\n",err);
-    return err;
-  }
-  err = avfilter_link(fftfilt_ctx, 0, ashowinfo_ctx, 0);
-  if (err < 0) {
-    fprintf(stderr,"Error connecting filters aformat and ashowinfo %d error\n",err);
     return err;
   }
   err = avfilter_link(ashowinfo_ctx, 0, abuffersink_ctx, 0);
@@ -306,10 +279,149 @@ static int init_filter_graph_windowing(AVFilterGraph **graph, AVFilterContext **
     fprintf(stderr, "Error configuring the filter graph\n");
     return err;
   }
+  av_buffersink_set_frame_size(abuffersink_ctx,2048);
   *graph = filter_graph;
   *src   = abuffer_ctx;
   *sink  = abuffersink_ctx;
   return 0;
+}
+
+static int init_filter_graph_hanning(AVFilterGraph **graph, AVFilterContext **src, AVFilterContext **sink){
+  AVFilterGraph *filter_graph;
+  AVFilterContext *abuffer_ctx;
+  AVFilter        *abuffer;
+  AVFilterContext *afftfilt_ctx;
+  AVFilter        *afftfilt;
+  AVFilterContext *ashowinfo_ctx;
+  AVFilter        *ashowinfo;
+  AVFilterContext *abuffersink_ctx;
+  AVFilter        *abuffersink;
+  AVDictionary *options_dict = NULL;
+  uint8_t options_str[1024];
+  uint8_t ch_layout[64];
+  int err;
+  char errstr[256];
+
+  /* Create a new filtergraph, which will contain all the filters. */
+  filter_graph = avfilter_graph_alloc();
+  if (!filter_graph) {
+    fprintf(stderr, "Unable to create filter graph.\n");
+    return AVERROR(ENOMEM);
+  }
+  
+  /* Create the abuffer filter;
+   * it will be used for feeding the data into the graph. */
+  abuffer = avfilter_get_by_name("abuffer");
+   if (abuffer == NULL) {
+    fprintf(stderr, "Could not find the abuffer filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  abuffer_ctx = avfilter_graph_alloc_filter(filter_graph, abuffer, "Wsrc");
+  if (abuffer_ctx == NULL) {
+    fprintf(stderr, "Could not allocate the abuffer instance.\n");
+    return AVERROR(ENOMEM);
+  }
+  
+  /* Set the filter options through the AVOptions API. */
+  av_get_channel_layout_string(ch_layout, sizeof(ch_layout), 0, AV_CH_LAYOUT_MONO);
+  err = av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
+  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d %s\n",err);
+  err = av_opt_set(abuffer_ctx, "sample_fmt", av_get_sample_fmt_name(AV_SAMPLE_FMT_FLT), AV_OPT_SEARCH_CHILDREN);
+  fprintf(stderr,"DEBUG: av_opt_set for sample_fmt returned %d\n",err);
+  err = av_opt_set_int(abuffer_ctx, "sample_rate", 5512, AV_OPT_SEARCH_CHILDREN);
+  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d\n",err);
+  /* Now initialize the filter; we pass NULL options, since we have already
+   * set all the options above. */
+  err = avfilter_init_str(abuffer_ctx, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the abuffer filter.\n");
+    return err;
+  }
+
+  afftfilt = avfilter_get_by_name("afftfilt");
+   if (afftfilt == NULL) {
+    fprintf(stderr, "Could not find the abuffer filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  afftfilt_ctx = avfilter_graph_alloc_filter(filter_graph, afftfilt, "Wfft");
+  if (afftfilt_ctx == NULL) {
+    fprintf(stderr, "Could not allocate the abuffer instance.\n");
+    return AVERROR(ENOMEM);
+  }
+
+  /* Now initialize the filter; we pass NULL options, since we have already
+   * set all the options above. */
+  err = avfilter_init_str(afftfilt_ctx,"win_size='w2048':win_func='hann'");
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the abuffer filter.\n");
+    return err;
+  }
+
+  ashowinfo = avfilter_get_by_name("ashowinfo");
+  if (!ashowinfo) {
+    fprintf(stderr, "Could not find the ashowinfo filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  ashowinfo_ctx = avfilter_graph_alloc_filter(filter_graph, ashowinfo, "ashowinfo_hanning");
+  if (!ashowinfo_ctx) {
+    fprintf(stderr, "Could not allocate the ashowinfo instance.\n");
+    return AVERROR(ENOMEM);
+  }
+  err = avfilter_init_str(ashowinfo_ctx, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the ashowinfo instance.\n");
+    return err;
+  }
+
+
+  /* Finally create the abuffersink filter;
+   * it will be used to get the filtered data out of the graph. */
+  abuffersink = avfilter_get_by_name("abuffersink");
+  if (!abuffersink) {
+    fprintf(stderr, "Could not find the abuffersink filter.\n");
+    return AVERROR_FILTER_NOT_FOUND;
+  }
+  abuffersink_ctx = avfilter_graph_alloc_filter(filter_graph, abuffersink, "Wsink");
+  if (!abuffersink_ctx) {
+    fprintf(stderr, "Could not allocate the abuffersink instance.\n");
+    return AVERROR(ENOMEM);
+  }
+  /* This filter takes no options. */
+  err = avfilter_init_str(abuffersink_ctx, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Could not initialize the abuffersink instance.\n");
+    return err;
+  }
+
+  /* Link all filters together now */
+  err = avfilter_link(abuffer_ctx, 0, ashowinfo_ctx, 0);
+  if(err < 0) {
+    fprintf(stderr, "Error connecting filters abuffer and fftfilt %d error\n",err);
+    return err;
+  }
+  err = avfilter_link(ashowinfo_ctx, 0, afftfilt_ctx, 0);
+  if (err < 0) {
+    fprintf(stderr, "Error connecting filters ashowinfo and buffersink %d error\n",err);
+    return err;
+  }
+  err = avfilter_link(afftfilt_ctx, 0, abuffersink_ctx, 0);
+  if (err < 0) {
+    fprintf(stderr, "Error connecting filters ashowinfo and buffersink %d error\n",err);
+    return err;
+  }
+
+  /* Configure the graph. */
+  err = avfilter_graph_config(filter_graph, NULL);
+  if (err < 0) {
+    fprintf(stderr, "Error configuring the filter graph\n");
+    return err;
+  }
+  av_buffersink_set_frame_size(abuffersink_ctx,2048);
+  *graph = filter_graph;
+  *src   = abuffer_ctx;
+  *sink  = abuffersink_ctx;
+  return 0;
+
 
 }
 
@@ -343,16 +455,27 @@ int init_decoder(char *filename1,char *filename2,uint8_t file_select)
     return err;
     }
   else {
-    err = init_filter_graph_windowing(&graph_window, &Wsrc, &Wsink);
+    err = init_filter_graph_framing_2048(&graph_frame_2048, &Fsrc, &Fsink);
     if(err < 0){
       fprintf(stderr,"ERROR: Not able to initialise filter_graph for windowing %d\n",err);
       return err;
     }
     fprintf(stderr,"DEBUG: Filter graph initialisation completed\n");
+
+    err = init_filter_graph_hanning(&graph_hann, &Wsrc, &Wsink);
+    if(err < 0){
+      fprintf(stderr,"ERROR: Not able to initialise filter_graph for windowing %d\n",err);
+      return err;
+    }
+    fprintf(stderr,"DEBUG: Filter graph initialisation completed\n");
+
   }
   return 0; 
 }
 
+/*
+Initializes input parameters based upon input frame
+*/
 void init_input_parameters(AVFrame *frame,AVCodecContext *dec_ctx)
 {
   if(frame == NULL){ 
@@ -377,18 +500,29 @@ void init_input_parameters(AVFrame *frame,AVCodecContext *dec_ctx)
     }
 }
 
+/*
+Just to dump debugging information about a frame
+*/
+void dump_frame_info(struct AVFrame *frame){
+    fprintf(stderr,"DEBUG: frame_peek1[i]->format:%d\n",frame->format);
+    fprintf(stderr,"DEBUG: frame_peek1[i]->width:%d\n",frame->width);
+    fprintf(stderr,"DEBUG: frame_peek1[i]->height:%d\n",frame->height);
+    fprintf(stderr,"DEBUG: frame_peek1[i]->channels:%d\n",frame->channels);
+    fprintf(stderr,"DEBUG: frame_peek1[i]->channel_layout:%d\n",frame->channel_layout);
+    fprintf(stderr,"DEBUG: frame_peek1[i]->nb_samples:%d\n",frame->nb_samples);
+}
+
 
 /*
 Opens input file and sets,initialises important context and parameters
 args: file_select Selects name of the file to be opened from orig_video_name(0) and edited_video_name(1)
-
  */
 int open_input_file(uint8_t file_select)
 {
   int ret;
   AVCodec *dec = NULL;
   AVDictionaryEntry *tag = NULL;
-  // this parameter needs to be set taking parameters from CLI, taking language number 1/2.
+  // this parameter needs to be set taking parameters from CLI, taking language number 1 or 2.
   uint8_t language = 0,i,j,got_frame;
   char *filename;
   AVFrame *frame = av_frame_alloc();
@@ -483,13 +617,13 @@ Read frame sequence covering 1.5 seconds from time given and buffers those frame
 Works like loop traversing frames to frames for a duration of 1.5 seconds. Resampling 
 function is called on frame itself then.
 
-arg: time_to_seek_ms Time in miliseconds to get frame from
+arg: time_to_seek_ms Time in mili seconds to get frame from
 arg: index           Index of subtitle block
 */
 void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
 {
-  int64_t start_pts = (time_to_seek_ms/1000) * INPUT_TIMEBASE.den;
-  int64_t end_pts = ((time_to_seek_ms + GRANUALITY)/1000) * INPUT_TIMEBASE.den;
+  int64_t start_pts = ((time_to_seek_ms)/1000) * INPUT_TIMEBASE.den;
+  int64_t end_pts = ((float)(time_to_seek_ms + 1500)/1000) * INPUT_TIMEBASE.den;
   int i = 0, count = 0,temp = 0,out_count = 0,in_count = 0;
   uint8_t *OUTPUT_SAMPLES = NULL,frame_count=0;
   AVPacket pkt;
@@ -497,26 +631,28 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
   int got_frame,ret=0;
   AVFrame *frame = av_frame_alloc();
   AVFrame *frame_2048 = av_frame_alloc();
+  const AVFrame *frame_peek1[32];
+  AVFrame *frame_copy = av_frame_alloc();
   int size,len,buf_size;
   uint64_t output_ch_layout = av_get_channel_layout("mono");
   enum AVSampleFormat src_sample_fmt;
   uint8_t *output_buffer = NULL;
   int err;
   char errstr[128];
+  struct FFBufQueue *frame_queue_32 = malloc(sizeof(struct FFBufQueue));
   if(end_pts > fmt_ctx->streams[audio_stream_index]->duration){
     printf("Error: End PTS(%lu) greater then duration of stream(%lu)\n",end_pts,fmt_ctx->streams[audio_stream_index]->duration);
     return;
   }
   ret = av_seek_frame(fmt_ctx,audio_stream_index, start_pts,AVSEEK_FLAG_BACKWARD); //get one frame before timing to cover all
-  
+   
   //trying avformat_seek_file instead of av_seek_frame
   //ret = avformat_seek_file(fmt_ctx,audio_stream_index,start_seek_target,start_seek_target,fmt_ctx->streams[audio_stream_index]->duration,AVSEEK_FLAG_BACKWARD);
   if( ret < 0 ){
     fprintf(stderr,"avformat_seek_file failed with error code %d\n",ret);
     return;
     }
-  fprintf(stdout,"Start PTS: %lu End PTS: %lu\n",start_pts,end_pts);
-  
+  fprintf(stdout,"Start PTS: %u End PTS: %u\n",start_pts,end_pts);
   // Problem is that output gets stored in uint8_t type whereas I want output in float type
   do{ //outer do-while to read packets
     ret = av_read_frame(fmt_ctx, &pkt);
@@ -542,6 +678,7 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
 	}
 	if(got_frame){
 	  err = av_buffersrc_add_frame(src, frame);
+	  i++;
 	  if(err < 0) {
 	    av_frame_unref(frame);
 	    fprintf(stderr,"Error adding frame to source buffer\n");
@@ -551,7 +688,7 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
 	}
       }
     }
- }while(frame->pts < end_pts);
+  }while(frame->pts < end_pts);
 
   // make frame available for overlapping and windowing
   // frame is size of 64 samples already.
@@ -559,28 +696,114 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
   // This process is repeated for every frame thus, 128 times we get 2048 frames.
   // Algo: 1. Fill source buffer with 32 frames
   //       2. Remove one frame and add another and get 2048 frame.
-
   // Fill source buffer
   while((ret = av_buffersink_get_frame(sink,frame)) >= 0){
-    if(frame_count < 64){ //feed frames to window graph
-      err = av_buffersrc_add_frame(Wsrc, frame);
+    if(frame_count < 32 && frame->nb_samples == 64) { //feed frames to window graph
+      //push the frame to bufferqueue 
+      fprintf(stderr,"DEBUG: Frame info before adding to frame_queue_32 frame->nb_samples:%d\n",frame->nb_samples);
+      ff_bufqueue_add(NULL,frame_queue_32,frame);
+      // Uncomment to add debug information about frame
+      //      dump_frame_info(frame);
+      fprintf(stderr,"DEBUG: Frame info after adding to frame_queue_32 frame->nb_samples:%d\n",frame->nb_samples);
+      err = av_buffersrc_add_frame(Fsrc, frame);
       frame_count++;
       if(err < 0) {
 	av_frame_unref(frame);
-	fprintf(stderr,"Error adding frame to source buffer\n");
+	fprintf(stderr,"ERROR:Not able to add frame to source buffer\n");
 	break;
       }
     }
+    else {
+      break;
+    }
   }
 
-  // Remove a frame and add other while getting 2048 hanning window
-    ret = av_buffersink_get_frame(Wsink,frame_2048);
+  frame_count = 0;
+  while(frame_count < 96){
+  ret = av_buffersink_get_frame(Fsink,frame_2048);
+  // use this frame_2048 and fill it in windowing graph
+  if(ret < 0){
+    av_strerror(ret,errstr,128);
+    fprintf(stderr,"No frame in buffer sink (Fsink) Frame count %d %s\n",frame_count,errstr);
+    return ret;
+  }
+
+  ret = av_buffersink_get_frame(sink,frame);
+  if(ret < 0){
+    fprintf(stderr,"DEBUG: No more frames in the sink\n");
+    break;
+  }
+  dump_frame_info(frame);
+  //Add one frame from sink to bufferqueue
+  ff_bufqueue_add(NULL,frame_queue_32,frame);
+  if(ff_bufqueue_is_full(frame_queue_32)){
+    fprintf(stderr,"DEBUG: Frame queue is completely filled\n");
+  }
+  else 
+    fprintf(stderr,"DEBUG: Frame queue size is %d\n",frame_queue_32->available);
+
+  //and peek from 0 - 31 adding to Fsrc
+  for(i=0;i<32;i++){
+    frame_peek1[i] = ff_bufqueue_peek(frame_queue_32,i);
+    if(frame_peek1[i] == NULL) { 
+      fprintf(stderr,"ERROR:Queue does not have enough buffers\n");
+      return -1;
+    }
+    fprintf(stderr,"DEBUG: Frame size before added to Fsrc %d for i %d\n",frame_peek1[i]->nb_samples,i);
+    dump_frame_info(frame_peek1[i]);    
+
+    frame_copy->format = frame_peek1[i]->format;
+    frame_copy->width = frame_peek1[i]->width;
+    frame_copy->height = frame_peek1[i]->height;
+    frame_copy->channels = frame_peek1[i]->channels;
+    frame_copy->channel_layout = frame_peek1[i]->channel_layout;
+    frame_copy->nb_samples = frame_peek1[i]->nb_samples;
+
+    //    dump_frame_info(frame_copy);    
+
+    ret = av_frame_get_buffer(frame_copy, 32);
     if(ret < 0){
       av_strerror(ret,errstr,128);
-      fprintf(stderr,"No frame in buffer sink (Wsink) %s\n",errstr);
-      return ret;
+      fprintf(stderr,"DEBUG: av_frame_get_buffer returned %d:\"%s\"\n",ret,errstr);
+      return -1;
     }
-  
+    ret = av_frame_copy(frame_copy, frame_peek1[i]);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,"DEBUG: Frame not copied %d error \"%s\"\n",ret,errstr);
+      return -1;
+    }
+    ret = av_frame_copy_props(frame_copy,frame_peek1[i]);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,"DEBUG: Frame metadata not copied properly %d error \"%s\"\n",ret,errstr);
+      return -1;
+    }
+
+    //NOTE: av_buffersrc_add_frame at last uses av_frame_free on frame supplied. Thus we supply a copy of it. So that we don't loose reference.
+    err = av_buffersrc_add_frame(Fsrc, frame_copy);
+    if(err < 0){
+      av_strerror(err,errstr,128);
+       fprintf(stderr,"DEBUG: Cannot add frames to Fsrc \"%s\"\n",errstr);
+       break;
+    } 
+    fprintf(stderr,"DEBUG: Frame size after added to Fsrc %d for i %d\n",frame_copy->nb_samples,i);
+    fprintf(stderr,"DEBUG: Frame count %d\n",frame_count);  
+  }
+  frame_count++;
+  av_buffersrc_add_frame(Wsrc, frame_2048);
+  }
+
+  //at final graph_hann should contain 96 frames of hanned window 
+  for(i=0;i<95;i++){
+    ret = av_buffersink_get_frame(Wsink, frame_2048);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,"DEBUG: av_buffersink_get_frame returned %d:\"%s\"\n",ret,errstr);
+      return -1;
+    }
+  }
+
   av_frame_free(&frame);
   av_frame_free(&frame_2048);
   return;
@@ -591,5 +814,5 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
 void close_filter()
 {
   avfilter_graph_free(&graph_resample);
-  avfilter_graph_free(&graph_window);
+  avfilter_graph_free(&graph_frame_2048);
 }
