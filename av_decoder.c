@@ -12,7 +12,7 @@
 #include <libavutil/frame.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
-#include <libavfilter/bufferqueue.h>
+#include "bufferqueue.h"
 #include "av_decoder.h"
 #include "config.h"
 
@@ -72,14 +72,10 @@ static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **s
     return AVERROR(ENOMEM);
   }
   av_get_channel_layout_string(ch_layout, sizeof(ch_layout), 0, INPUT_CHANNEL_LAYOUT);
-  err = av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d %s\n",err);
-  err = av_opt_set(abuffer_ctx, "sample_fmt", av_get_sample_fmt_name(INPUT_SAMPLE_FMT), AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for sample_fmt returned %d\n",err);
-  err = av_opt_set_q(abuffer_ctx, "time_base", (AVRational){ 1, INPUT_SAMPLERATE }, AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for time_base returned %d\n",err);
-  err = av_opt_set_int(abuffer_ctx, "sample_rate", INPUT_SAMPLERATE, AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d\n",err);
+  av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
+  av_opt_set(abuffer_ctx, "sample_fmt", av_get_sample_fmt_name(INPUT_SAMPLE_FMT), AV_OPT_SEARCH_CHILDREN);
+  av_opt_set_q(abuffer_ctx, "time_base", (AVRational){ 1, INPUT_SAMPLERATE }, AV_OPT_SEARCH_CHILDREN);
+  av_opt_set_int(abuffer_ctx, "sample_rate", INPUT_SAMPLERATE, AV_OPT_SEARCH_CHILDREN);
   /* Now initialize the filter; we pass NULL options, since we have already                                                                                               
    * set all the options above. */
   err = avfilter_init_str(abuffer_ctx, NULL);
@@ -214,11 +210,8 @@ static int init_filter_graph_framing_2048(AVFilterGraph **graph, AVFilterContext
   /* Set the filter options through the AVOptions API. */
   av_get_channel_layout_string(ch_layout, sizeof(ch_layout), 0, AV_CH_LAYOUT_MONO);
   err = av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d %s\n",err);
   err = av_opt_set(abuffer_ctx, "sample_fmt", av_get_sample_fmt_name(AV_SAMPLE_FMT_FLT), AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for sample_fmt returned %d\n",err);
   err = av_opt_set_int(abuffer_ctx, "sample_rate", 5512, AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d\n",err);
   /* Now initialize the filter; we pass NULL options, since we have already
    * set all the options above. */
   err = avfilter_init_str(abuffer_ctx, NULL);
@@ -324,12 +317,10 @@ static int init_filter_graph_hanning(AVFilterGraph **graph, AVFilterContext **sr
   
   /* Set the filter options through the AVOptions API. */
   av_get_channel_layout_string(ch_layout, sizeof(ch_layout), 0, AV_CH_LAYOUT_MONO);
-  err = av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d %s\n",err);
-  err = av_opt_set(abuffer_ctx, "sample_fmt", av_get_sample_fmt_name(AV_SAMPLE_FMT_FLT), AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for sample_fmt returned %d\n",err);
-  err = av_opt_set_int(abuffer_ctx, "sample_rate", 5512, AV_OPT_SEARCH_CHILDREN);
-  fprintf(stderr,"DEBUG: av_opt_set for channel_layout returned %d\n",err);
+  av_opt_set(abuffer_ctx, "channel_layout", ch_layout, AV_OPT_SEARCH_CHILDREN);
+  av_opt_set(abuffer_ctx, "sample_fmt", av_get_sample_fmt_name(AV_SAMPLE_FMT_FLT), AV_OPT_SEARCH_CHILDREN);
+  av_opt_set_int(abuffer_ctx, "sample_rate", 5512, AV_OPT_SEARCH_CHILDREN);
+
   /* Now initialize the filter; we pass NULL options, since we have already
    * set all the options above. */
   err = avfilter_init_str(abuffer_ctx, NULL);
@@ -421,8 +412,6 @@ static int init_filter_graph_hanning(AVFilterGraph **graph, AVFilterContext **sr
   *src   = abuffer_ctx;
   *sink  = abuffersink_ctx;
   return 0;
-
-
 }
 
 /*
@@ -460,7 +449,6 @@ int init_decoder(char *filename1,char *filename2,uint8_t file_select)
       fprintf(stderr,"ERROR: Not able to initialise filter_graph for windowing %d\n",err);
       return err;
     }
-    fprintf(stderr,"DEBUG: Filter graph initialisation completed\n");
 
     err = init_filter_graph_hanning(&graph_hann, &Wsrc, &Wsink);
     if(err < 0){
@@ -504,12 +492,12 @@ void init_input_parameters(AVFrame *frame,AVCodecContext *dec_ctx)
 Just to dump debugging information about a frame
 */
 void dump_frame_info(struct AVFrame *frame){
-    fprintf(stderr,"DEBUG: frame_peek1[i]->format:%d\n",frame->format);
-    fprintf(stderr,"DEBUG: frame_peek1[i]->width:%d\n",frame->width);
-    fprintf(stderr,"DEBUG: frame_peek1[i]->height:%d\n",frame->height);
-    fprintf(stderr,"DEBUG: frame_peek1[i]->channels:%d\n",frame->channels);
-    fprintf(stderr,"DEBUG: frame_peek1[i]->channel_layout:%d\n",frame->channel_layout);
-    fprintf(stderr,"DEBUG: frame_peek1[i]->nb_samples:%d\n",frame->nb_samples);
+    fprintf(stderr,"DEBUG: frame->format:%d\n",frame->format);
+    fprintf(stderr,"DEBUG: frame->width:%d\n",frame->width);
+    fprintf(stderr,"DEBUG: frame->height:%d\n",frame->height);
+    fprintf(stderr,"DEBUG: frame->channels:%d\n",frame->channels);
+    fprintf(stderr,"DEBUG: frame->channel_layout:%d\n",frame->channel_layout);
+    fprintf(stderr,"DEBUG: frame->nb_samples:%d\n",frame->nb_samples);
 }
 
 
@@ -700,11 +688,9 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
   while((ret = av_buffersink_get_frame(sink,frame)) >= 0){
     if(frame_count < 32 && frame->nb_samples == 64) { //feed frames to window graph
       //push the frame to bufferqueue 
-      fprintf(stderr,"DEBUG: Frame info before adding to frame_queue_32 frame->nb_samples:%d\n",frame->nb_samples);
       ff_bufqueue_add(NULL,frame_queue_32,frame);
       // Uncomment to add debug information about frame
       //      dump_frame_info(frame);
-      fprintf(stderr,"DEBUG: Frame info after adding to frame_queue_32 frame->nb_samples:%d\n",frame->nb_samples);
       err = av_buffersrc_add_frame(Fsrc, frame);
       frame_count++;
       if(err < 0) {
@@ -733,7 +719,7 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
     fprintf(stderr,"DEBUG: No more frames in the sink\n");
     break;
   }
-  dump_frame_info(frame);
+  //  dump_frame_info(frame);
   //Add one frame from sink to bufferqueue
   ff_bufqueue_add(NULL,frame_queue_32,frame);
   if(ff_bufqueue_is_full(frame_queue_32)){
@@ -749,18 +735,14 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
       fprintf(stderr,"ERROR:Queue does not have enough buffers\n");
       return -1;
     }
-    fprintf(stderr,"DEBUG: Frame size before added to Fsrc %d for i %d\n",frame_peek1[i]->nb_samples,i);
-    dump_frame_info(frame_peek1[i]);    
-
+    //   dump_frame_info(frame_peek1[i]);    
     frame_copy->format = frame_peek1[i]->format;
     frame_copy->width = frame_peek1[i]->width;
     frame_copy->height = frame_peek1[i]->height;
     frame_copy->channels = frame_peek1[i]->channels;
     frame_copy->channel_layout = frame_peek1[i]->channel_layout;
     frame_copy->nb_samples = frame_peek1[i]->nb_samples;
-
     //    dump_frame_info(frame_copy);    
-
     ret = av_frame_get_buffer(frame_copy, 32);
     if(ret < 0){
       av_strerror(ret,errstr,128);
@@ -787,8 +769,6 @@ void process_frame_by_pts(uint16_t index,int64_t time_to_seek_ms)
        fprintf(stderr,"DEBUG: Cannot add frames to Fsrc \"%s\"\n",errstr);
        break;
     } 
-    fprintf(stderr,"DEBUG: Frame size after added to Fsrc %d for i %d\n",frame_copy->nb_samples,i);
-    fprintf(stderr,"DEBUG: Frame count %d\n",frame_count);  
   }
   frame_count++;
   av_buffersrc_add_frame(Wsrc, frame_2048);
