@@ -50,7 +50,7 @@ void add_timestamp_to_array(uint16_t index,char *time_stamp)
   i=0;
   do{
     //send temp_pts to next function
-    process_frame_by_pts(index,temp_pts_ms); 
+    create_fingerprint_by_pts(index,temp_pts_ms); 
     fprintf(stderr,"DEBUG:PTS: %u\n",temp_pts_ms);
     temp_pts_ms = temp_pts_ms + GRANUALITY;
     i++;

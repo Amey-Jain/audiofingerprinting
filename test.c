@@ -29,7 +29,7 @@ void test_av_decoder(char *filename,float frame_pts)
 {
   fprintf(stderr,"%s received params %s %f\n",__FUNCTION__,filename,frame_pts);
   int ret = init_decoder(filename,NULL,1);
-  process_frame_by_pts(0,frame_pts);
+  create_fingerprint_by_pts(0,frame_pts);
 } 
 
 int main(int argc, char *argv[])

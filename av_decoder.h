@@ -13,6 +13,6 @@ struct fingerprint_block {
 };
 
 int init_decoder(char *filename1,char *filename2,uint8_t file_select);
-int open_input_file(uint8_t file_select);
-void process_frame_by_pts(uint16_t index,int64_t pts);
+int open_input_file(uint8_t file_select,uint8_t lang_flag);
+void create_fingerprint_by_pts(uint16_t index,int64_t pts);
 void close_filter();
