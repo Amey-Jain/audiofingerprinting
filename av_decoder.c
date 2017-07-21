@@ -639,7 +639,9 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
 {
   int64_t start_pts = av_rescale(time_to_seek_ms, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num);
   start_pts = start_pts/1000;
-  int64_t end_pts = ((float)(time_to_seek_ms + 1500)/1000) * INPUT_TIMEBASE.den;
+  //  int64_t end_pts = ((float)(time_to_seek_ms + GRANUALITY)/1000) * INPUT_TIMEBASE.den;
+  int64_t end_pts = av_rescale(time_to_seek_ms + GRANUALITY, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num);
+  end_pts = end_pts/1000;
   int i = 0, count = 0,temp = 0,out_count = 0,in_count = 0;
   uint8_t *OUTPUT_SAMPLES = NULL,frame_count=0;
   AVPacket pkt;
@@ -647,8 +649,11 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   int got_frame,ret=0;
   AVFrame *frame = av_frame_alloc();
   AVFrame *frame_2048 = av_frame_alloc();
-  void *log_bins=NULL;
-  const AVFrame *frame_peek1[32];
+  double *log_bins=NULL;
+  double *log_bins_array = (double *) malloc(sizeof(double) * 128 * 32);
+  int log_bins_arr_index = 0;
+  int copy_size = 32 *sizeof(double);
+  const struct AVFrame *frame_peek1[32];
   AVFrame *frame_copy = av_frame_alloc();
   int size,len,buf_size;
   uint64_t output_ch_layout = av_get_channel_layout("mono");
@@ -657,7 +662,8 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   int err;
   char errstr[128];
   fftw_complex *out=NULL;
-  struct FFBufQueue *frame_queue_32 = malloc(sizeof(struct FFBufQueue));
+  struct FFBufQueue *frame_queue_32 = (struct FFBufQueue *) malloc(sizeof(struct FFBufQueue));
+  frame_queue_32->available = 0;
   if(end_pts > fmt_ctx->streams[audio_stream_index]->duration){
     printf("Error: End PTS(%lu) greater then duration of stream(%lu)\n",end_pts,fmt_ctx->streams[audio_stream_index]->duration);
     return;
@@ -720,14 +726,14 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
       //push the frame to bufferqueue 
       ff_bufqueue_add(NULL,frame_queue_32,frame);
       // Uncomment to add debug information about frame
-      dump_frame_info(frame);
+      //     dump_frame_info(frame);
       err = av_buffersrc_add_frame(Fsrc, frame);
-      frame_count++;
       if(err < 0) {
 	av_frame_unref(frame);
 	fprintf(stderr,"ERROR:Not able to add frame to source buffer\n");
 	break;
       }
+      frame_count++;
     }
     else {
       break;
@@ -735,79 +741,83 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   }
 
   frame_count = 0;
-  while(frame_count < 96){
-  ret = av_buffersink_get_frame(Fsink,frame_2048);
-  // use this frame_2048 and fill it in windowing graph
-  if(ret < 0){
-    av_strerror(ret,errstr,128);
-    fprintf(stderr,"No frame in buffer sink (Fsink) Frame count %d %s\n",frame_count,errstr);
-    return ret;
-  }
-
-  ret = av_buffersink_get_frame(sink,frame);
-  if(ret < 0){
+  while(frame_count < 128){
+    // use this frame_2048 and fill it in windowing graph
+    ret = av_buffersink_get_frame(Fsink,frame_2048);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,"No frame in buffer sink (Fsink) Frame count %d %s\n",frame_count,errstr);
+      return ret;
+    }
+    
+    ret = av_buffersink_get_frame(sink,frame);
+    if(ret < 0){
     fprintf(stderr,"DEBUG: No more frames in the sink\n");
     break;
-  }
-  //  dump_frame_info(frame);
-  //Add one frame from sink to bufferqueue
-  ff_bufqueue_get(frame_queue_32);
-  ff_bufqueue_add(NULL,frame_queue_32,frame);
-  if(ff_bufqueue_is_full(frame_queue_32)){
-    fprintf(stderr,"DEBUG: Frame queue is completely filled\n");
-  }
-  else 
-    fprintf(stderr,"DEBUG: Frame queue size is %d\n",frame_queue_32->available);
-
-  //and peek from 0 - 31 adding to Fsrc
-  for(i=0;i<32;i++){
-    frame_peek1[i] = ff_bufqueue_peek(frame_queue_32,i);
-    if(frame_peek1[i] == NULL) { 
-      fprintf(stderr,"ERROR:Queue does not have enough buffers\n");
-      return -1;
     }
-    //   dump_frame_info(frame_peek1[i]);    
-    frame_copy->format = frame_peek1[i]->format;
-    frame_copy->width = frame_peek1[i]->width;
-    frame_copy->height = frame_peek1[i]->height;
-    frame_copy->channels = frame_peek1[i]->channels;
-    frame_copy->channel_layout = frame_peek1[i]->channel_layout;
-    frame_copy->nb_samples = frame_peek1[i]->nb_samples;
-    //    dump_frame_info(frame_copy);    
-    ret = av_frame_get_buffer(frame_copy, 32);
-    if(ret < 0){
-      av_strerror(ret,errstr,128);
-      fprintf(stderr,"DEBUG: av_frame_get_buffer returned %d:\"%s\"\n",ret,errstr);
-      return -1;
+    //  dump_frame_info(frame);
+    //Add one frame from sink to bufferqueue
+    ff_bufqueue_get(frame_queue_32);
+    ff_bufqueue_add(NULL,frame_queue_32,frame);
+    if(ff_bufqueue_is_full(frame_queue_32))
+      fprintf(stderr,"DEBUG: Frame queue is completely filled\n");
+    else 
+      fprintf(stderr,"ERROR: Frame queue size is %d\n",frame_queue_32->available);
+    
+    //and peek from 0 - 31 adding to Fsrc
+    for(i=0;i<32;i++){
+      frame_peek1[i] = ff_bufqueue_peek(frame_queue_32,i);
+      if(frame_peek1[i] == NULL) { 
+	fprintf(stderr,"ERROR:Queue does not have enough buffers\n");
+	return -1;
+      }
+      //else if not null push the frame to buffersrc Fsrc for framing to 2048
+      //   dump_frame_info(frame_peek1[i]);    
+      frame_copy->format = frame_peek1[i]->format;
+      frame_copy->width = frame_peek1[i]->width;
+      frame_copy->height = frame_peek1[i]->height;
+      frame_copy->channels = frame_peek1[i]->channels;
+      frame_copy->channel_layout = frame_peek1[i]->channel_layout;
+      frame_copy->nb_samples = frame_peek1[i]->nb_samples;
+      //    dump_frame_info(frame_copy);    
+      ret = av_frame_get_buffer(frame_copy, 32);
+      if(ret < 0){
+	av_strerror(ret,errstr,128);
+	fprintf(stderr,"DEBUG: av_frame_get_buffer returned %d:\"%s\"\n",ret,errstr);
+	return -1;
+      }
+      
+      ret = av_frame_copy(frame_copy, frame_peek1[i]);
+      if(ret < 0){
+	av_strerror(ret,errstr,128);
+	fprintf(stderr,"DEBUG: Frame not copied %d error \"%s\"\n",ret,errstr);
+	return -1;
+      }
+      
+      ret = av_frame_copy_props(frame_copy,frame_peek1[i]);
+      if(ret < 0){
+	av_strerror(ret,errstr,128);
+	fprintf(stderr,"DEBUG: Frame metadata not copied properly %d error \"%s\"\n",ret,errstr);
+	return -1;
+      }
+      
+      //NOTE: av_buffersrc_add_frame at last uses av_frame_free on frame supplied. Thus we supply a copy of it. So that we don't loose reference.
+      err = av_buffersrc_add_frame(Fsrc, frame_copy);
+      if(err < 0){
+	av_strerror(err,errstr,128);
+	fprintf(stderr,"DEBUG: Cannot add frames to Fsrc \"%s\"\n",errstr);
+	break;
+      } 
     }
-    ret = av_frame_copy(frame_copy, frame_peek1[i]);
-    if(ret < 0){
-      av_strerror(ret,errstr,128);
-      fprintf(stderr,"DEBUG: Frame not copied %d error \"%s\"\n",ret,errstr);
-      return -1;
-    }
-    ret = av_frame_copy_props(frame_copy,frame_peek1[i]);
-    if(ret < 0){
-      av_strerror(ret,errstr,128);
-      fprintf(stderr,"DEBUG: Frame metadata not copied properly %d error \"%s\"\n",ret,errstr);
-      return -1;
-    }
-
-    //NOTE: av_buffersrc_add_frame at last uses av_frame_free on frame supplied. Thus we supply a copy of it. So that we don't loose reference.
-    err = av_buffersrc_add_frame(Fsrc, frame_copy);
-    if(err < 0){
-      av_strerror(err,errstr,128);
-       fprintf(stderr,"DEBUG: Cannot add frames to Fsrc \"%s\"\n",errstr);
-       break;
-    } 
+    frame_count++;
+    av_buffersrc_add_frame(Wsrc, frame_2048);
   }
-  frame_count++;
-  av_buffersrc_add_frame(Wsrc, frame_2048);
-  }
-
+  
+  fprintf(stderr,"DEBUG: frame_count value %d\n",frame_count);
   init_fft_params();
-  //at final graph_hann should contain 96 frames of hanned window 
-  for(i=0;i<95;i++){
+  //at final graph_hann should contain 128 frames of hanned window 
+  for(i=0;i<127;i++){
+    log_bins_arr_index = log_bins_arr_index + 32;
     ret = av_buffersink_get_frame(Wsink, frame_2048);
     if(ret < 0){
       av_strerror(ret,errstr,128);
@@ -815,10 +825,19 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
       return -1;
     }
     log_bins = process_av_frame(frame_2048);
-
+    memcpy(log_bins_array + log_bins_arr_index,log_bins, copy_size);
   }
+
+  //Finally log_bins_array now contains all 128x32 wavelets from which we will extract top 
+
+
+  free(log_bins_array);
+  free(log_bins);
+  free(frame_queue_32);
   av_frame_free(&frame);
   av_frame_free(&frame_2048);
+  av_frame_free(&frame_copy);
+
   return;
 }
 

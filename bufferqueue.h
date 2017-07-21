@@ -76,7 +76,8 @@ static inline void ff_bufqueue_add(void *log, struct FFBufQueue *queue,
         av_frame_free(&BUCKET(--queue->available));
     }
     fprintf(stderr,"DEBUG: Frame added nb_samples %d\n",buf->nb_samples);
-    BUCKET(queue->available++) = buf;
+    BUCKET(queue->available++) = buf; 
+    fprintf(stderr,"%s available:%d\n",__FUNCTION__,queue->available); 
 }
 
 /**

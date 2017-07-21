@@ -16,10 +16,12 @@ Process a single frame and return final output array of log bins
  */
 double *process_av_frame(AVFrame *frame){
   fftw_complex *out=NULL;
+  int i;
   int *log_frequencies = generate_log_frequencies(5512);
   double *log_bins=NULL;
+  double *spec;
   out = fft_av_frame(frame);
-  double *spec = out[0];
+  spec = out;
   log_bins = extract_log_bins(spec,log_frequencies);
   decompose_array(log_bins,32);
   return log_bins;
@@ -102,13 +104,13 @@ double *extract_log_bins(double *spec,int *log_frequency_index)
   for(i=0; i < 32; i++){
     int low_bound = log_frequency_index[i];
     int higher_bound = log_frequency_index[i + 1];
-
+    //    fprintf(stderr,"DEBUG: low_bound %d higher_bound %d\n",low_bound,higher_bound);
+    sum_freq[i] = 0;
     for(j = low_bound;j < higher_bound; j++){
       double re = spec[2 * j] / width;
       double img = spec[(2 * j) + 1] / width;
-      sum_freq[i] += (float)((re * re) + (img * img));
+      sum_freq[i] += (double) ((re * re) + (img * img));
     }
-
     sum_freq[i] = sum_freq[i] / (higher_bound - low_bound);
   }
   return sum_freq;
