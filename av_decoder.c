@@ -651,6 +651,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   AVFrame *frame_2048 = av_frame_alloc();
   double *log_bins=NULL;
   double *log_bins_array = (double *) malloc(sizeof(double) * 128 * 32);
+  //  *log_bins_array = (double) {0};
   int log_bins_arr_index = 0;
   int copy_size = 32 *sizeof(double);
   const struct AVFrame *frame_peek1[32];
@@ -663,6 +664,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   char errstr[128];
   fftw_complex *out=NULL;
   struct FFBufQueue *frame_queue_32 = (struct FFBufQueue *) malloc(sizeof(struct FFBufQueue));
+  bool *result=NULL;
   frame_queue_32->available = 0;
   if(end_pts > fmt_ctx->streams[audio_stream_index]->duration){
     printf("Error: End PTS(%lu) greater then duration of stream(%lu)\n",end_pts,fmt_ctx->streams[audio_stream_index]->duration);
@@ -672,7 +674,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
    
   // trying avformat_seek_file instead of av_seek_frame
   //  ret = avformat_seek_file(fmt_ctx,audio_stream_index,0,start_pts,start_pts,AVSEEK_FLAG_FRAME);
-  if( ret < 0 ){
+  if(ret < 0){
     fprintf(stderr,"avformat_seek_file failed with error code %d\n",ret);
     return;
   }
@@ -709,7 +711,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
 	    return;
 	  }
 	  size = size - len;
-	}
+ 	}
       }
     }
   }while(frame->pts < end_pts);
@@ -817,7 +819,6 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   init_fft_params();
   //at final graph_hann should contain 128 frames of hanned window 
   for(i=0;i<127;i++){
-    log_bins_arr_index = log_bins_arr_index + 32;
     ret = av_buffersink_get_frame(Wsink, frame_2048);
     if(ret < 0){
       av_strerror(ret,errstr,128);
@@ -825,12 +826,18 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
       return -1;
     }
     log_bins = process_av_frame(frame_2048);
-    memcpy(log_bins_array + log_bins_arr_index,log_bins, copy_size);
+    if(log_bins == NULL){
+      fprintf(stderr,"ERROR: process_av_frame unable to process frame\n");
+      break;
+    }
+    memcpy(&log_bins_array[log_bins_arr_index],log_bins,copy_size);
+    log_bins_arr_index = log_bins_arr_index + 32;
   }
 
   //Finally log_bins_array now contains all 128x32 wavelets from which we will extract top 
-
-
+  result = extract_top_wavelets(log_bins_array,200);
+  for(i=0;i<200;i++)
+    fprintf(stderr,"DEBUG: %d %d\n",i,result[i]);
   free(log_bins_array);
   free(log_bins);
   free(frame_queue_32);
