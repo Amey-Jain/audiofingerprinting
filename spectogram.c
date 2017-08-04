@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include "spectogram.h"
 #include "config.h"
+#include "permutations.h"
 
 fftw_complex *fft_in=NULL,*fft_out=NULL;
 fftw_plan *plan_forward;
@@ -27,7 +28,7 @@ double *process_av_frame(AVFrame *frame){
   decompose_array(log_bins,32);
   return log_bins;
 }
- 
+  
 void init_fft_params(void){
   fftw_plan *plan=NULL;
   fft_in = fftw_malloc(sizeof(fftw_complex) * SAMPLE_PER_SUB_FP);
@@ -219,11 +220,31 @@ bool *encode_fingerprint(double *log_bins_array, int *indexes, int top_wavelets)
   return result;
 }
   
-bool *extract_top_wavelets(double *log_bins_array,int top_wavelets/*,bool **result*/){
+uint8_t *extract_top_wavelets(double *log_bins_array,int top_wavelets){
   int indexes[4096],i;
+  uint8_t *result=NULL;
   for(i=0;i<4096;i++)
     indexes[i] = i;
   find(top_wavelets - 1,log_bins_array, indexes,0,4095);
-  bool *result = encode_fingerprint(log_bins_array, indexes, top_wavelets);
+  bool *fingerprint = encode_fingerprint(log_bins_array, indexes, top_wavelets);
+  result = compute_hash_signature(fingerprint);
   return result;
 }
+
+uint8_t *compute_hash_signature(bool *fingerprint){
+  int **perms = malloc(100 * 256 *  sizeof(int));
+  int i,j;
+  perms = get_perms();
+  uint8_t *min_hash = malloc(100 * sizeof(uint8_t));
+  for(i=0;i<100;i++) {
+    min_hash[i] = 255;
+    for(j=0;j<256;j++){  
+      if(fingerprint[perms[i][j]]){
+	min_hash[i] = (uint8_t) j;
+	break;
+      }
+    }
+  }
+  return min_hash;
+}
+

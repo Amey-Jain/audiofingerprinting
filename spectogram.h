@@ -14,7 +14,8 @@ double *extract_log_bins(double *spec,int *log_frequency_index);
 int frequency_to_spectrum_index(float frequency, int sampleRate, int spectrumLength);
 int *generate_log_frequencies(int sample_rate);
 double *process_av_frame(AVFrame *frame);
-bool *extract_top_wavelets(double *log_bins_array,int top_wavelets/*,bool **result*/);
+uint8_t *extract_top_wavelets(double *log_bins_array,int top_wavelets);
+uint8_t *compute_hash_signature(bool *fingerprint);
 
 
 

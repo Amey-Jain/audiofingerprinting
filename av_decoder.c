@@ -32,6 +32,7 @@ uint64_t INPUT_CHANNEL_LAYOUT = 0;
 AVRational INPUT_TIMEBASE;
 char *orig_video_name = NULL;
 char *edited_video_name = NULL;
+uint64_t pts_first_frame = 0;
 
 //taken from ffmpeg-filter_audio.c https://www.ffmpeg.org/doxygen/2.2/filter_audio_8c-example.html
 static int init_filter_graph_resample(AVFilterGraph **graph, AVFilterContext **src, AVFilterContext **sink)
@@ -621,6 +622,7 @@ int open_input_file(uint8_t file_select,uint8_t language)
     }
   }
   fprintf(stderr,"DEBUG: First read frame PTS:%lu\n",frame->pts); 
+  pts_first_frame = frame->pts;
  /* Initialise filters */
  init_input_parameters(frame, dec_ctx);
  av_frame_free(&frame);
@@ -637,11 +639,13 @@ arg: index           Index of subtitle block
 */
 void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
 {
-  int64_t start_pts = av_rescale(time_to_seek_ms, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num);
+  int64_t start_pts = av_rescale(time_to_seek_ms, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num) ;
   start_pts = start_pts/1000;
-  //  int64_t end_pts = ((float)(time_to_seek_ms + GRANUALITY)/1000) * INPUT_TIMEBASE.den;
+  start_pts += pts_first_frame;
+  // int64_t end_pts = ((float)(time_to_seek_ms + GRANUALITY)/1000) * INPUT_TIMEBASE.den;
   int64_t end_pts = av_rescale(time_to_seek_ms + GRANUALITY, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num);
   end_pts = end_pts/1000;
+  end_pts += pts_first_frame;
   int i = 0, count = 0,temp = 0,out_count = 0,in_count = 0;
   uint8_t *OUTPUT_SAMPLES = NULL,frame_count=0;
   AVPacket pkt;
@@ -664,7 +668,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   char errstr[128];
   fftw_complex *out=NULL;
   struct FFBufQueue *frame_queue_32 = (struct FFBufQueue *) malloc(sizeof(struct FFBufQueue));
-  bool *result=NULL;
+  uint8_t *result=NULL;
   frame_queue_32->available = 0;
   if(end_pts > fmt_ctx->streams[audio_stream_index]->duration){
     printf("Error: End PTS(%lu) greater then duration of stream(%lu)\n",end_pts,fmt_ctx->streams[audio_stream_index]->duration);
@@ -816,7 +820,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   }
   
   fprintf(stderr,"DEBUG: frame_count value %d\n",frame_count);
-  init_fft_params();
+  // init_fft_params();
   //at final graph_hann should contain 128 frames of hanned window 
   for(i=0;i<127;i++){
     ret = av_buffersink_get_frame(Wsink, frame_2048);
@@ -824,20 +828,22 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
       av_strerror(ret,errstr,128);
       fprintf(stderr,"DEBUG: av_buffersink_get_frame returned %d:\"%s\"\n",ret,errstr);
       return -1;
-    }
-    log_bins = process_av_frame(frame_2048);
+    } 
+    /*   log_bins = process_av_frame(frame_2048);
     if(log_bins == NULL){
       fprintf(stderr,"ERROR: process_av_frame unable to process frame\n");
       break;
     }
     memcpy(&log_bins_array[log_bins_arr_index],log_bins,copy_size);
-    log_bins_arr_index = log_bins_arr_index + 32;
+    log_bins_arr_index = log_bins_arr_index + 32;*/
   }
 
   //Finally log_bins_array now contains all 128x32 wavelets from which we will extract top 
-  result = extract_top_wavelets(log_bins_array,200);
-  for(i=0;i<200;i++)
-    fprintf(stderr,"DEBUG: %d %d\n",i,result[i]);
+  //  result = extract_top_wavelets(log_bins_array,200);
+
+  // for(i=0;i<100;i++)
+  //fprintf(stderr,"DEBUG: %d %d\n",i,result[i]);
+
   free(log_bins_array);
   free(log_bins);
   free(frame_queue_32);
