@@ -10,6 +10,7 @@ Currently it can read .srt files, more formats to be added later.
 #include <wchar.h>
 #include <locale.h>
 #include <ctype.h>
+#include <errno.h>
 #include "sub_reader.h"
 #include "config.h"
 #include "av_decoder.h"
@@ -67,10 +68,10 @@ int reader(const char *file_name)
   uint16_t temp;
   uint16_t index_buf = 0;
   uint8_t line_ending;
-  
-  input_handle = fopen(file_name,"r");
+  struct subtitle_block current;
+  input_handle = fopen(file_name,"rb");
   if(input_handle == NULL){
-    fprintf(stderr,"Unable to open file: %s\n",file_name);
+    fprintf(stderr,"Unable to open file: %s Error %d\n",file_name,errno);
     return -1;
   }
   else{
@@ -83,6 +84,9 @@ int reader(const char *file_name)
       //file is utf-8 type
       // main loop for reading subtitle timings
       printf("UTF-8 detected\n");
+    }
+    else if(t[0] == '1' && (t[1] =='\r' && t[2] == '\n') || t[1] == '\n'){
+      current.index = 1;
     }
     //TODO handling of other than UTF-8
     else{
@@ -102,6 +106,7 @@ int reader(const char *file_name)
       else{
 	if((temp = strlen(buf)) >= 3 && isdigit(buf[i]) && buf[temp - 2]=='\r' && buf[temp - 1]=='\n'){
 	  index_buf = (index_buf ?  :atoi(&buf[i]));
+	  current.index = index_buf;
 	}
 	if((strlen(buf) == 29) && index_buf){
 	  add_timestamp_to_array(index_buf,buf);

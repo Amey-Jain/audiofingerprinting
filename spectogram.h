@@ -7,7 +7,6 @@
 #include<stdbool.h>
 #include "config.h"
 
-
 void init_fft_params(void); 
 fftw_complex *fft_av_frame(struct AVFrame *frame);
 double *extract_log_bins(double *spec,int *log_frequency_index);
@@ -16,6 +15,7 @@ int *generate_log_frequencies(int sample_rate);
 double *process_av_frame(AVFrame *frame);
 uint8_t *extract_top_wavelets(double *log_bins_array,int top_wavelets);
 uint8_t *compute_hash_signature(bool *fingerprint);
+
 
 
 
