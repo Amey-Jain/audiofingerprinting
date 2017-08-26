@@ -951,19 +951,23 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     for(i=0,j=0;i<100,j<25;i++){
       if((i+1) % 4 == 0){
 	num = ((result[i-3] << 24) | (result[i-2] << 16) | (result[i - 1] << 8) | result[i]);
-	fprintf(stdout,"%lu\t",num);
+	//	fprintf(stdout,"%lu\t",num);
 	res_array[j] = num;
 	j++;
       }
-      else if(i % 20 == 0)
-	fprintf(stdout,"\n");
+      //      else if(i % 20 == 0)
+	//	fprintf(stdout,"\n");
     }
-    fprintf(stdout,"\n");
-    if(current_select == 0)
-      insert_result_into_table(res_array, idx);    
+    //    fprintf(stdout,"\n");
+    
+    if(current_select == 0){
+      insert_result_into_table(res_array, idx);
+      print_tables();
+    }
     else if(current_select == 1){
       //search for fingerprint in tables
-      search_and_match(res_array,idx);      
+      search_and_match(res_array,idx);
+      //print_tables();
     }
     
     start_pts = end_pts;

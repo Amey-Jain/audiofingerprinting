@@ -6,6 +6,7 @@
 #include "sub_reader.h"
 #include "av_decoder.h"
 #include "config.h"
+#include "lsh_db.h"
 
 int main(int argc,char *argv[])
 {
@@ -39,6 +40,7 @@ int main(int argc,char *argv[])
   }
 
   set_current_processing_video(0); //original video
+  init_db();
   create_fingerprint_by_pts(0,100);
 
   set_current_processing_video(1);
