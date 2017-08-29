@@ -961,22 +961,26 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     //    fprintf(stdout,"\n");
     
     if(current_select == 0){
-      insert_result_into_table(res_array, idx);
-      print_tables();
+      ret = insert_entry_into_table(res_array, idx);
+      if(ret < 0){
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to insert entry into table for index %d Error code:%d\n"ANSI_COLOR_RESET,idx,ret);
+	return -1;
+      }
+      //print_tables();
     }
     else if(current_select == 1){
       //search for fingerprint in tables
+      printf("Table for index %d\n",idx);
       search_and_match(res_array,idx);
       //print_tables();
     }
-    
     start_pts = end_pts;
     end_pts = end_pts + granuality;
     log_bins_arr_index = 0;
     idx++;
   }
 
-  
+  //  print_tables();
   free(log_bins_array);
   free(log_bins);
   free(res_array);

@@ -47,6 +47,7 @@ int main(int argc,char *argv[])
   create_fingerprint_by_pts(0,100);
 
   //  ret = reader(subtitle_filename);
+  close_db();
   close_filter();
   if(ret != 0){
     fprintf(stderr,"ERROR: Unable to open file %s\n",subtitle_filename);
