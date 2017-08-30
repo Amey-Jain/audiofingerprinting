@@ -41,10 +41,10 @@ int main(int argc,char *argv[])
 
   set_current_processing_video(0); //original video
   init_db();
-  create_fingerprint_by_pts(0,100);
+  create_fingerprint_by_pts(0,0);
 
   set_current_processing_video(1);
-  create_fingerprint_by_pts(0,100);
+  create_fingerprint_by_pts(0,0);
 
   //  ret = reader(subtitle_filename);
   close_db();

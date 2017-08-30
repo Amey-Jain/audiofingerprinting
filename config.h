@@ -8,6 +8,7 @@
 //it can handle size of 99:59:59,999
 #define LLONG uint32_t 
 #define SAMPLE_PER_SUB_FP 2048 //number of samples to be processed for one sub fingerprint
+#define VOTING_THRESHOLD 3
 
 #define ANSI_COLOR_ERROR     "\x1b[31m"
 #define ANSI_COLOR_DEBUG   "\x1b[32m"

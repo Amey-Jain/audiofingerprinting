@@ -17,3 +17,4 @@ struct subtitle_block{
 int reader(const char *);
 LLONG pts_to_mseconds(char *);
 void add_timestamp_to_array(uint16_t,char *);  
+char *seconds_to_pts(LLONG num,char *temp);

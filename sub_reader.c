@@ -29,6 +29,16 @@ LLONG pts_to_mseconds(char *str) // converts timestamp in *str to LLONG in secon
  return pts;
 }
 
+char *seconds_to_pts(LLONG num,char *str)
+{ 
+  uint16_t hh,mm,ss;
+  str = malloc(sizeof(char) * 9);
+  hh = num/3600;
+  mm = (num % 3600)/60;
+  ss = (num % 3600) % 60;
+  snprintf(str,9,"%02d:%02d:%02d",hh,mm,ss);
+  return str;
+}
 void add_timestamp_to_array(uint16_t index,char *time_stamp)
 {
   char *temp; 

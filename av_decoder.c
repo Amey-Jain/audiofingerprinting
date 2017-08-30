@@ -17,6 +17,7 @@
 #include "config.h"
 #include "spectogram.h"
 #include "lsh_db.h"
+#include "sub_reader.h"
 
 static AVFormatContext *fmt_ctx_orig = NULL,*fmt_ctx_edited = NULL;
 static AVFormatContext *fmt_ctx = NULL;
@@ -36,8 +37,8 @@ enum AVSampleFormat INPUT_SAMPLE_FMT = -1;
 uint64_t INPUT_SAMPLERATE = 0;
 uint64_t INPUT_CHANNEL_LAYOUT = 0;
 AVRational INPUT_TIMEBASE;
-uint64_t pts_first_frame_orig = 0;
-uint64_t pts_first_frame_edited = 0;
+static uint64_t pts_first_frame_orig = 0;
+static uint64_t pts_first_frame_edited = 0;
 uint64_t pts_first_frame = 0;
 static AVFrame *first_frame_orig = NULL, *first_frame_edited = NULL;
 uint16_t idx = 0;
@@ -567,6 +568,7 @@ Initializes input parameters based upon input frame
 */
 void init_input_parameters(AVFrame *frame,AVCodecContext *dec_ctx,AVFormatContext *fmt_ctx)
 {
+  char err[9];
   if(frame == NULL){ 
     fprintf(stderr,ANSI_COLOR_ERROR"ERROR:Frame is NULL\n"ANSI_COLOR_RESET);
     return;
@@ -585,7 +587,7 @@ void init_input_parameters(AVFrame *frame,AVCodecContext *dec_ctx,AVFormatContex
     return;
   }
   else{
-    fprintf(stderr,"DEBUG:input parameters set Sample rate %d Time base %d/%d\nDuration of selected stream %lu\n",INPUT_SAMPLERATE,INPUT_TIMEBASE.num,INPUT_TIMEBASE.den,fmt_ctx->streams[audio_stream_index]->duration);
+    fprintf(stderr,"DEBUG:input parameters set Sample rate %d Time base %d/%d\nDuration of selected stream %s\n",INPUT_SAMPLERATE,INPUT_TIMEBASE.num,INPUT_TIMEBASE.den,seconds_to_pts(fmt_ctx->streams[audio_stream_index]->duration/INPUT_TIMEBASE.den,err));
   }
 }
 
@@ -706,7 +708,8 @@ int open_input_file(uint8_t file_select,uint8_t language)
   while(1){ //read an audio frame for format specifications
     ret = av_read_frame(fmt_ctx, &pkt);
     if(ret < 0){
-      fprintf(stderr,ANSI_COLOR_ERROR"Unable to read frame:%d \n"ANSI_COLOR_RESET,ret);
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,ANSI_COLOR_ERROR"Unable to read frame:%s\n"ANSI_COLOR_RESET,errstr);
       break;
     }
     if(pkt.stream_index == audio_stream_index){ 
@@ -772,7 +775,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   enum AVSampleFormat src_sample_fmt;
   uint8_t *output_buffer = NULL;
   int err;
-  char errstr[128];
+  char errstr[128],*temp1=NULL,*temp2=NULL;
   fftw_complex *out=NULL;
   struct FFBufQueue *frame_queue_32 = (struct FFBufQueue *) malloc(sizeof(struct FFBufQueue));
   uint8_t *result=NULL;
@@ -797,8 +800,11 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     do{ //outer do-while to read packets
       ret = av_read_frame(fmt_ctx, &pkt);
       if(ret < 0){
-	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Unable to read frame:%d \n"ANSI_COLOR_RESET,ret);
+	av_strerror(ret,errstr,128);
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Unable to read frame:%s \n"ANSI_COLOR_RESET,errstr);
 	break;
+	/*if(ret == AVERROR_EOF)
+	  return;*/
       }
       if(pkt.stream_index == audio_stream_index){ // processing audio packets
 	size = pkt.size;
@@ -945,23 +951,23 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     
     //Finally log_bins_array now contains all 128x32 wavelets from which we will extract top 
     result = extract_top_wavelets(log_bins_array,200);
-    fprintf(stdout,ANSI_COLOR_YELLOW"Index %d Fingerprint for time slot: %lu - %lu\n"ANSI_COLOR_RESET,idx,start_pts,end_pts);
+    fprintf(stdout,ANSI_COLOR_YELLOW"Index %d Fingerprint for time slot: %s - %s\n"ANSI_COLOR_RESET,idx,seconds_to_pts(start_pts/INPUT_TIMEBASE.den,temp1),seconds_to_pts(end_pts/INPUT_TIMEBASE.den,temp2));
     long num = 0;
     res_array = malloc(sizeof(uint64_t) * 25);
     for(i=0,j=0;i<100,j<25;i++){
       if((i+1) % 4 == 0){
-	num = ((result[i-3] << 24) | (result[i-2] << 16) | (result[i - 1] << 8) | result[i]);
+	num = ((result[i-3] << 24) | (result[i-2] << 16) | (result[i-1] << 8) | result[i]);
 	//	fprintf(stdout,"%lu\t",num);
 	res_array[j] = num;
 	j++;
       }
       //      else if(i % 20 == 0)
-	//	fprintf(stdout,"\n");
+      //	fprintf(stdout,"\n");
     }
     //    fprintf(stdout,"\n");
     
     if(current_select == 0){
-      ret = insert_entry_into_table(res_array, idx);
+      ret = insert_entry_into_table(res_array, idx,start_pts,end_pts);
       if(ret < 0){
 	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to insert entry into table for index %d Error code:%d\n"ANSI_COLOR_RESET,idx,ret);
 	return -1;
@@ -970,7 +976,6 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     }
     else if(current_select == 1){
       //search for fingerprint in tables
-      printf("Table for index %d\n",idx);
       search_and_match(res_array,idx);
       //print_tables();
     }
@@ -985,6 +990,8 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   free(log_bins);
   free(res_array);
   free(frame_queue_32);
+  free(temp1);
+  free(temp2);
   av_frame_free(&frame);
   av_frame_free(&frame_2048);
   av_frame_free(&frame_copy);
