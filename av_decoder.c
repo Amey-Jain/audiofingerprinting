@@ -30,13 +30,13 @@ static AVFilterGraph *graph_hann=NULL;
 static AVFilterContext *src=NULL,*sink=NULL;
 static AVFilterContext *Fsrc=NULL,*Fsink=NULL;
 static AVFilterContext *Wsrc=NULL,*Wsink=NULL;
-//static struct input_parameters i_para[2];
+
 char *orig_video_name = NULL;
 char *edited_video_name = NULL;
 enum AVSampleFormat INPUT_SAMPLE_FMT = -1;
 uint64_t INPUT_SAMPLERATE = 0;
 uint64_t INPUT_CHANNEL_LAYOUT = 0;
-AVRational INPUT_TIMEBASE;
+static AVRational INPUT_TIMEBASE;
 static uint64_t pts_first_frame_orig = 0;
 static uint64_t pts_first_frame_edited = 0;
 uint64_t pts_first_frame = 0;
@@ -582,6 +582,7 @@ void init_input_parameters(AVFrame *frame,AVCodecContext *dec_ctx,AVFormatContex
   INPUT_SAMPLERATE = frame->sample_rate;
   INPUT_SAMPLE_FMT = dec_ctx->sample_fmt;
   INPUT_TIMEBASE = fmt_ctx->streams[audio_stream_index]->time_base;
+
   if(!INPUT_CHANNEL_LAYOUT || !INPUT_SAMPLERATE || (INPUT_SAMPLE_FMT == -1)){
     fprintf(stderr,ANSI_COLOR_ERROR"ERROR:input parameters not set\n"ANSI_COLOR_RESET);
     return;
@@ -705,6 +706,13 @@ int open_input_file(uint8_t file_select,uint8_t language)
     fprintf(stdout,"DEBUG: Selected audio stream:%d for edited video\n",audio_stream_index);
   }
 
+  ret = av_seek_frame(fmt_ctx,audio_stream_index, 0, AVSEEK_FLAG_BACKWARD); //get one frame before timing to cover all
+  // trying avformat_seek_file instead of av_seek_frame
+  //  ret = avformat_seek_file(fmt_ctx,audio_stream_index,0,start_pts,start_pts,AVSEEK_FLAG_FRAME);
+  if(ret < 0){
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: avformat_seek_file failed with error code %d\n"ANSI_COLOR_RESET,ret);
+    return ret;
+  }
   while(1){ //read an audio frame for format specifications
     ret = av_read_frame(fmt_ctx, &pkt);
     if(ret < 0){
@@ -726,7 +734,7 @@ int open_input_file(uint8_t file_select,uint8_t language)
   
   fprintf(stdout,"DEBUG: Time base unit:AVStream->time_base: %lu/%lu\nFrame rate %lu/%lu\n",fmt_ctx->streams[audio_stream_index]->time_base.num,fmt_ctx->streams[audio_stream_index]->time_base.den,dec_ctx->framerate.num,dec_ctx->framerate.den); //dec_ctx doesn't shows values
   fprintf(stdout,"DEBUG: Start time in timebase units %lu\n",fmt_ctx->streams[audio_stream_index]->start_time);
-  fprintf(stdout,"DEBUG: First read frame PTS:%lu\n",frame->pts);
+  fprintf(stdout,ANSI_COLOR_BLUE"DEBUG: First read frame PTS:%lu\n"ANSI_COLOR_RESET,frame->pts);
   
   if(file_select == 0){
     pts_first_frame_orig = frame->pts;
@@ -744,16 +752,16 @@ Read frame sequence covering 1.5 seconds from time given and buffers those frame
 Works like loop traversing frames to frames for a duration of 1.5 seconds. Resampling 
 function is called on frame itself then.
 
-arg: time_to_seek_ms Time in mili seconds to get frame from
+arg: time_to_seek_ms PTS of time to make fingerprint of
 arg: index           Index of subtitle block
 */
-void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
+int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
 {
   //  int64_t start_pts = av_rescale(time_to_seek_ms, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num) ;
   //  start_pts = start_pts/1000;
   //  start_pts += pts_first_frame;
   //  time_to_seek_ms += GRANUALITY;
-  int64_t start_pts = pts_first_frame;
+  int64_t start_pts = pts_first_frame + pts;
   int64_t granuality = av_rescale(GRANUALITY/1000, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num);
   //  end_pts += pts_first_frame;
   int64_t end_pts = start_pts + granuality;
@@ -780,31 +788,32 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   struct FFBufQueue *frame_queue_32 = (struct FFBufQueue *) malloc(sizeof(struct FFBufQueue));
   uint8_t *result=NULL;
   uint64_t *res_array = NULL;
+  int64_t delay = -1;
   frame_queue_32->available = 0;
   if(end_pts > (fmt_ctx->streams[audio_stream_index]->duration + pts_first_frame)){
     fprintf(stderr,ANSI_COLOR_ERROR"ERROR: End PTS(%lu) greater then duration of stream(%lu)\n"ANSI_COLOR_RESET,end_pts,fmt_ctx->streams[audio_stream_index]->duration);
-    return;
+    return -1;
   }
+  
+  ret = av_seek_frame(fmt_ctx,audio_stream_index, start_pts, AVSEEK_FLAG_BACKWARD); //get one frame before timing to cover all
+  // trying avformat_seek_file instead of av_seek_frame
+  //  ret = avformat_seek_file(fmt_ctx,audio_stream_index,0,start_pts,start_pts,AVSEEK_FLAG_FRAME);
+  if(ret < 0){
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: avformat_seek_file failed with error code %d\n"ANSI_COLOR_RESET,ret);
+    return ret;
+  }
+  
+  //  while(end_pts < (fmt_ctx->streams[audio_stream_index]->duration + pts_first_frame)){
+  //    fprintf(stdout,"Start PTS: %lu End PTS: %lu\n",start_pts,end_pts);
+  do{ //outer do-while to read packets
 
-  while(end_pts < (fmt_ctx->streams[audio_stream_index]->duration + pts_first_frame)){
-    ret = av_seek_frame(fmt_ctx,audio_stream_index, start_pts, AVSEEK_FLAG_BACKWARD); //get one frame before timing to cover all
-    
-    // trying avformat_seek_file instead of av_seek_frame
-    //  ret = avformat_seek_file(fmt_ctx,audio_stream_index,0,start_pts,start_pts,AVSEEK_FLAG_FRAME);
-    if(ret < 0){
-      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: avformat_seek_file failed with error code %d\n"ANSI_COLOR_RESET,ret);
-      return;
-    }
-    //    fprintf(stdout,"Start PTS: %lu End PTS: %lu\n",start_pts,end_pts);
-    
-    do{ //outer do-while to read packets
       ret = av_read_frame(fmt_ctx, &pkt);
       if(ret < 0){
 	av_strerror(ret,errstr,128);
 	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Unable to read frame:%s \n"ANSI_COLOR_RESET,errstr);
-	break;
-	/*if(ret == AVERROR_EOF)
-	  return;*/
+	//	break;
+	if(ret == AVERROR_EOF)
+	  return ret;
       }
       if(pkt.stream_index == audio_stream_index){ // processing audio packets
 	size = pkt.size;
@@ -815,27 +824,28 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
 	  }
 	  if(pkt.duration == 0){
 	    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No duration information present in stream\n"ANSI_COLOR_RESET);
-	    return;
+	    return -1;
 	  }
-	  
 	  len = avcodec_decode_audio4(dec_ctx, frame, &got_frame, &pkt);
 	  if(len < 0){
 	    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: while decoding\n"ANSI_COLOR_RESET);
 	  }
 	  if(got_frame){
 	    err = av_buffersrc_add_frame(src, frame);
+	    if(delay == -1) // difference between first frame and required pts
+	      delay = labs(frame->pts - pts); 
+	    printf("DEBUG: frame added in buffersrc %lu\n",frame->pts);
 	    i++;
 	    if(err < 0) {
 	      av_frame_unref(frame);
 	      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to add frame to source buffer\n"ANSI_COLOR_RESET);
-	      return;
+	      return err;
 	    }
 	    size = size - len;
 	  }
 	}
       }
     }while(frame->pts < end_pts);
-    
     // make frame available for overlapping and windowing
     // frame is size of 64 samples already.
     // feed 32 frames to filter_graph_window and collect one 2048 sample frame out of it.
@@ -843,6 +853,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     // Algo: 1. Fill source buffer with 32 frames
     //       2. Remove one frame and add another and get 2048 frame.
     // Fill source buffer
+    //    fprintf(stderr,"DEBUG: Feeding frames to bufferqueue\n");
     while((ret = av_buffersink_get_frame(sink,frame)) >= 0){
       if(frame_count < 32 && frame->nb_samples == 64) { //feed frames to window graph
 	//push the frame to bufferqueue 
@@ -861,7 +872,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
 	break;
       }
     }
-    
+
     frame_count = 0;
     while(frame_count < 128){
       // use this frame_2048 and fill it in windowing graph
@@ -934,12 +945,14 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     init_fft_params();
     //at final graph_hann should contain 128 frames of hanned window 
     for(i=0;i<127;i++){
+      char tempo[9];
       ret = av_buffersink_get_frame(Wsink, frame_2048);
       if(ret < 0){
 	av_strerror(ret,errstr,128);
 	fprintf(stdout,"DEBUG: av_buffersink_get_frame returned %d:\"%s\"\n",ret,errstr);
 	return -1;
-      } 
+      }
+
       log_bins = process_av_frame(frame_2048);
       if(log_bins == NULL){
 	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: process_av_frame unable to process frame\n"ANSI_COLOR_RESET);
@@ -967,7 +980,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     //    fprintf(stdout,"\n");
     
     if(current_select == 0){
-      ret = insert_entry_into_table(res_array, idx,start_pts,end_pts);
+      ret = insert_entry_into_table(res_array, idx,start_pts,end_pts,delay);
       if(ret < 0){
 	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to insert entry into table for index %d Error code:%d\n"ANSI_COLOR_RESET,idx,ret);
 	return -1;
@@ -976,14 +989,14 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
     }
     else if(current_select == 1){
       //search for fingerprint in tables
-      search_and_match(res_array,idx);
+      search_and_match(res_array,idx,start_pts);
       //print_tables();
     }
     start_pts = end_pts;
     end_pts = end_pts + granuality;
     log_bins_arr_index = 0;
     idx++;
-  }
+    //}
 
   //  print_tables();
   free(log_bins_array);
@@ -995,8 +1008,7 @@ void create_fingerprint_by_pts(uint16_t index,int64_t time_to_seek_ms)
   av_frame_free(&frame);
   av_frame_free(&frame_2048);
   av_frame_free(&frame_copy);
-
-  return;
+  return 0;
 }
 
 
