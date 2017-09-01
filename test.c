@@ -29,7 +29,7 @@ void test_pts_to_mseconds(char *input_str)
 void test_av_decoder(char *filename,float frame_pts)
 {
   fprintf(stderr,"%s received params %s %f\n",__FUNCTION__,filename,frame_pts);
-  int ret = init_decoder(filename,NULL,1);
+  //  int ret = init_decoder(filename);
   create_fingerprint_by_pts(0,frame_pts);
 } 
 
@@ -42,17 +42,16 @@ int main(int argc, char *argv[])
 {
   int i,j,k,temp_len;
   char *input_str=NULL,*temp=NULL;
-  if(argc<4)
+  if(argc<3)
     {
       printf("Usage: ./test flags <input>\n-f:\ttest reader, -f followed by file name\n-t:\ttest pts_to_seconds\n-d:\ttest avdecoder, -d <input video file> <time>\n-b:\t test database\n");
       return -1;
     }
-  else if(argc == 4)
-    {
-      input_str = argv[2]; 
-    }  
-  if(strcmp(argv[1],"-f") == 0)
+  
+  if(strcmp(argv[1],"-f") == 0){
+    input_str = argv[2];
     test_reader(input_str);
+  }
   else if(strcmp(argv[1],"-t") == 0)
     test_pts_to_mseconds(input_str);
   else if(strcmp(argv[1],"-d") == 0 && argv[3] != NULL)

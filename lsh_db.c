@@ -1,5 +1,4 @@
 #include<stdint.h>
-#include<sqlite3.h>
 #include<inttypes.h>
 #include<stdlib.h>
 #include<stdio.h>
@@ -9,7 +8,6 @@
 #include "sub_reader.h"
 #include "av_decoder.h"
 
-sqlite3 **db=NULL;
 char *filename=NULL;
 char *tablename;
 int number_of_hash_tables = 25;
@@ -25,36 +23,6 @@ int callback_debug(void *p, int *result_columns, char **col_text, char **col_nam
   }
   fprintf(stderr,"\n");
   return 0;
-}
-
-void initialise_database(void){
-  int ret;
-  char *err_msg=0;
-  ret = sqlite3_open(filename, db);
-  if(ret == SQLITE_OK){
-    fprintf(stdout,"DEBUG:Sucessfully created database with name %s\n",filename);
-  }
-  else if(db == NULL){
-    fprintf(stderr,"ERROR: %s unable to allocate memory for database\n",__FUNCTION__);
-    return ;
-  }
-  else{
-    fprintf(stderr,"ERROR: %s sqlite3_open returned %d %s\n",__FUNCTION__,ret,sqlite3_errstr(ret));
-  }
-
-  //create tables and other data
-  ret = sqlite3_exec(db,			\
-		     "CREATE TABLE orignal (\
-                         hash long,	    \
-                         subtitle_index int \
-                         );",\
-		     callback_debug,			\
-		     0,				\
-		     &err_msg);
-
-  if(ret != 0){
-    fprintf(stderr,"ERROR: sqlite3 returned %s\n",err_msg);
-  }
 }
  
 /*
