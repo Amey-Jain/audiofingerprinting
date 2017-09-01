@@ -7,6 +7,7 @@
 #include "config.h"
 #include "lsh_db.h"
 #include "sub_reader.h"
+#include "av_decoder.h"
 
 sqlite3 **db=NULL;
 char *filename=NULL;
@@ -136,7 +137,7 @@ int search_for_entry_in_table(uint64_t entry,int table_no){
 insert index into table table_no and entry with entry_index
 If index is found in entry nothing is done, else a new index is added to it
  */
-int insert_index_into_entry(int table_no, int entry_index,uint16_t index,uint64_t start_pts,uint64_t end_pts){
+int insert_index_into_entry(int table_no, int entry_index,uint16_t index,uint64_t start_pts,uint64_t end_pts,uint16_t delay){
   int i,j,ctr;
   uint16_t *iptr;
   ctr = tables[table_no]->entries[entry_index].index_ctr;
@@ -179,14 +180,15 @@ int insert_index_into_entry(int table_no, int entry_index,uint16_t index,uint64_
     indices[index]->entries[table_no] = (uint16_t) entry_index;
     //add here start and end pts also
     indices[index]->start_pts = start_pts;
-    indices[index]->end_pts = end_pts;	    
+    indices[index]->end_pts = end_pts;
+    indices[index]->delay = delay;
   }
   else
     fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to update lookup table of indexes. Increase MAX_INDEXES macro in lsh_db.h\n"ANSI_COLOR_RESET);
   return 0;
 }
  
-int insert_entry_into_table(uint64_t *result,uint16_t fingerprint_index,uint64_t start_pts,uint64_t end_pts){
+int insert_entry_into_table(uint64_t *result,uint16_t fingerprint_index,uint64_t start_pts,uint64_t end_pts,uint16_t delay){
   int i,j,ret,entries_ctr,index_ctr;
   void *temp;
   for(i=0;i<25;i++){
@@ -200,7 +202,7 @@ int insert_entry_into_table(uint64_t *result,uint16_t fingerprint_index,uint64_t
       tables[i]->entries_max = NO_OF_ENTRIES_ALLOC;
       tables[i]->entries[entries_ctr].f_value = result[i];
       tables[i]->entries[entries_ctr].index_ctr = -1;
-      ret = insert_index_into_entry(i,entries_ctr,fingerprint_index,start_pts,end_pts); 
+      ret = insert_index_into_entry(i,entries_ctr,fingerprint_index,start_pts,end_pts,delay); 
       if(ret != 0){
 	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to add index to entry\n"ANSI_COLOR_RESET);
 	return ret;
@@ -222,7 +224,7 @@ int insert_entry_into_table(uint64_t *result,uint16_t fingerprint_index,uint64_t
 	entries_ctr = ++(tables[i]->entries_ctr);
 	tables[i]->entries[entries_ctr].f_value = result[i];
 	tables[i]->entries[entries_ctr].index_ctr = -1;
-	ret = insert_index_into_entry(i,entries_ctr,fingerprint_index,start_pts,end_pts);
+	ret = insert_index_into_entry(i,entries_ctr,fingerprint_index,start_pts,end_pts,delay);
 	if(ret != 0){
 	  fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to add index to entry %d\n"ANSI_COLOR_RESET,__LINE__);
 	  return ret;
@@ -232,7 +234,7 @@ int insert_entry_into_table(uint64_t *result,uint16_t fingerprint_index,uint64_t
 	entries_ctr = ++(tables[i]->entries_ctr);
 	tables[i]->entries[entries_ctr].f_value = result[i];
 	tables[i]->entries[entries_ctr].index_ctr = -1;
-	ret = insert_index_into_entry(i,entries_ctr,fingerprint_index,start_pts,end_pts);
+	ret = insert_index_into_entry(i,entries_ctr,fingerprint_index,start_pts,end_pts,delay);
       }
     }
     else {
@@ -240,7 +242,7 @@ int insert_entry_into_table(uint64_t *result,uint16_t fingerprint_index,uint64_t
       //search through indices of entry
       //and enter the index in entry
       //      printf("Case Entry found at index %d\n",ret);
-      ret = insert_index_into_entry(i,ret,fingerprint_index,start_pts,end_pts);
+      ret = insert_index_into_entry(i,ret,fingerprint_index,start_pts,end_pts,delay);
     }
   }
   return ret;
@@ -289,7 +291,7 @@ uint64_t match_cur_bitwise(uint64_t *result,uint16_t index){
   return ctr;
 }
 
-int search_and_match(uint64_t *result,uint16_t checking_index){
+int search_and_match(uint64_t *result,uint16_t checking_index,uint64_t start_pts){
   int i,j,ctr,k,low_index_ctr=0,ret;
   uint16_t entries_ctr,index_ctr;
   uint64_t ret2;
@@ -326,15 +328,18 @@ int search_and_match(uint64_t *result,uint16_t checking_index){
     }
   }
   
-  printf("Votes\n");
+  printf("Vote\n");
   for(i=0;i<r_set.ctr;i++)
-    if(r_set.votes[i] > 2){
+    if(r_set.votes[i] > 1){
       uint16_t temp = r_set.indexes[i];
       ret = match_cur(result,temp);
-      if(ret > 8){
+      //      fprintf(stdout,ANSI_COLOR_DEBUG"DEBUG: %d/25 signatures matched\n",ret);
+      if(ret > 10){
 	ret2 = match_cur_bitwise(result,temp);
-	if(ret2 < 30)
-	  printf("%f match found with index\t%d\tHamming distance sum:%lu\t\t%s\t-\t%s\n",(float)ret/25,r_set.indexes[i],ret2,seconds_to_pts(indices[r_set.indexes[i]]->start_pts/1000,temp1),seconds_to_pts(indices[r_set.indexes[i]]->end_pts/1000,temp2));
+	//	fprintf(stdout,ANSI_COLOR_DEBUG"DEBUG: %d hamming distance\n",ret2);
+	if(ret2 < 20)
+	  //if(300 + (start_pts/1000) > indices[r_set.indexes[i]]->start_pts/1000) // timings greater than 3 minute from edited are excluded
+	    printf("%f match found with index\t%d\tHamming distance sum:%lu\t\t%s\t-\t%s\n",(float)ret/25,r_set.indexes[i],ret2,seconds_to_pts(indices[r_set.indexes[i]]->start_pts/1000,temp1),seconds_to_pts(indices[r_set.indexes[i]]->end_pts/1000,temp2));
       }
     }
   printf("\n");
