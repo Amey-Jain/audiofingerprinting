@@ -583,6 +583,7 @@ void init_input_parameters(AVFrame *frame,AVCodecContext *dec_ctx,AVFormatContex
   INPUT_SAMPLE_FMT = dec_ctx->sample_fmt;
   INPUT_TIMEBASE = fmt_ctx->streams[audio_stream_index]->time_base;
 
+  printf("INPUT_TIMEBASE: %lu/%lu",INPUT_TIMEBASE.num,INPUT_TIMEBASE.den);
   if(!INPUT_CHANNEL_LAYOUT || !INPUT_SAMPLERATE || (INPUT_SAMPLE_FMT == -1)){
     fprintf(stderr,ANSI_COLOR_ERROR"ERROR:input parameters not set\n"ANSI_COLOR_RESET);
     return;
@@ -604,7 +605,33 @@ void dump_frame_info(struct AVFrame *frame){
     fprintf(stderr,ANSI_COLOR_ERROR"DEBUG: frame->nb_samples:%d\n",frame->nb_samples);
 }
 
-
+int get_video_info(uint8_t file_select,int *num,int *den,uint64_t *pts_first_frame,uint64_t *duration){
+  if(file_select == 0){
+    if(num != NULL)
+      *num = INPUT_TIMEBASE.num;
+    if(den != NULL)
+      *den = (uint16_t) INPUT_TIMEBASE.den;
+    if(pts_first_frame != NULL)
+      *pts_first_frame = pts_first_frame_orig;
+    if(duration != NULL)
+      *duration = fmt_ctx_orig->streams[audio_stream_index]->duration;
+  }
+  else if(file_select == 1){
+    if(num != NULL)
+      *num = INPUT_TIMEBASE.num;
+    if(den != NULL)
+      *den = (uint16_t) INPUT_TIMEBASE.den;
+    if(pts_first_frame != NULL)
+      *pts_first_frame = pts_first_frame_edited;
+    if(duration != NULL)
+      *duration = fmt_ctx_edited->streams[audio_stream_index]->duration;
+  }
+  else{
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Invalid value given to %s .File_select only accepts 0 or 1\n",__FUNCTION__);
+    return -1;
+  }
+  return 0;
+} 
 /*
 Opens input file and sets,initialises important context and parameters
 args: file_select Selects name of the file to be opened from orig_video_name(0) and edited_video_name(1)
@@ -669,7 +696,7 @@ int open_input_file(uint8_t file_select,uint8_t language)
     if(fmt_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO){
       tag = av_dict_get(fmt_ctx->streams[i]->metadata, "language", tag, AV_DICT_IGNORE_SUFFIX);
       if(tag != NULL && strcmp(tag->value,"eng") == 0){ //language unset
-	if(language == 0){
+        if(language == 0){
 	  audio_stream_index = i;
 	  break;
 	}
@@ -746,7 +773,7 @@ int open_input_file(uint8_t file_select,uint8_t language)
   }
   return 0;      
 }
-
+ 
 /*
 Read frame sequence covering 1.5 seconds from time given and buffers those frame.
 Works like loop traversing frames to frames for a duration of 1.5 seconds. Resampling 
@@ -761,7 +788,8 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   //  start_pts = start_pts/1000;
   //  start_pts += pts_first_frame;
   //  time_to_seek_ms += GRANUALITY;
-  int64_t start_pts = pts_first_frame + pts;
+  printf("%s received index %d pts %lu\n",__FUNCTION__,index,pts);
+  int64_t start_pts = /*pts_first_frame +*/ pts;
   int64_t granuality = av_rescale(GRANUALITY/1000, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num);
   //  end_pts += pts_first_frame;
   int64_t end_pts = start_pts + granuality;
@@ -790,6 +818,8 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   uint64_t *res_array = NULL;
   int64_t delay = -1;
   frame_queue_32->available = 0;
+  frame_queue_32->head = 0;
+  
   if(end_pts > (fmt_ctx->streams[audio_stream_index]->duration + pts_first_frame)){
     fprintf(stderr,ANSI_COLOR_ERROR"ERROR: End PTS(%lu) greater then duration of stream(%lu)\n"ANSI_COLOR_RESET,end_pts,fmt_ctx->streams[audio_stream_index]->duration);
     return -1;
@@ -806,147 +836,146 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   //  while(end_pts < (fmt_ctx->streams[audio_stream_index]->duration + pts_first_frame)){
   //    fprintf(stdout,"Start PTS: %lu End PTS: %lu\n",start_pts,end_pts);
   do{ //outer do-while to read packets
-
-      ret = av_read_frame(fmt_ctx, &pkt);
-      if(ret < 0){
-	av_strerror(ret,errstr,128);
-	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Unable to read frame:%s \n"ANSI_COLOR_RESET,errstr);
-	//	break;
-	if(ret == AVERROR_EOF)
-	  return ret;
-      }
-      if(pkt.stream_index == audio_stream_index){ // processing audio packets
-	size = pkt.size;
-	while(size > 0){ // inner while to decode frames, if more than one are present in a single packet
-	  got_frame = 0;
-	  if(pkt.pts == AV_NOPTS_VALUE){
-	    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No PTS information present in stream\n"ANSI_COLOR_RESET);
-	  }
-	  if(pkt.duration == 0){
-	    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No duration information present in stream\n"ANSI_COLOR_RESET);
-	    return -1;
-	  }
-	  len = avcodec_decode_audio4(dec_ctx, frame, &got_frame, &pkt);
-	  if(len < 0){
-	    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: while decoding\n"ANSI_COLOR_RESET);
-	  }
-	  if(got_frame){
-	    err = av_buffersrc_add_frame(src, frame);
-	    if(delay == -1) // difference between first frame and required pts
-	      delay = labs(frame->pts - pts); 
-	    printf("DEBUG: frame added in buffersrc %lu\n",frame->pts);
-	    i++;
-	    if(err < 0) {
-	      av_frame_unref(frame);
-	      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to add frame to source buffer\n"ANSI_COLOR_RESET);
-	      return err;
-	    }
-	    size = size - len;
-	  }
+    
+    ret = av_read_frame(fmt_ctx, &pkt);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Unable to read frame:%s \n"ANSI_COLOR_RESET,errstr);
+      //	break;
+      if(ret == AVERROR_EOF)
+	return ret;
+    }
+    if(pkt.stream_index == audio_stream_index){ // processing audio packets
+      size = pkt.size;
+      while(size > 0){ // inner while to decode frames, if more than one are present in a single packet
+	got_frame = 0;
+	if(pkt.pts == AV_NOPTS_VALUE){
+	  fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No PTS information present in stream\n"ANSI_COLOR_RESET);
 	}
-      }
-    }while(frame->pts < end_pts);
-    // make frame available for overlapping and windowing
-    // frame is size of 64 samples already.
-    // feed 32 frames to filter_graph_window and collect one 2048 sample frame out of it.
-    // This process is repeated for every frame thus, 128 times we get 2048 frames.
-    // Algo: 1. Fill source buffer with 32 frames
-    //       2. Remove one frame and add another and get 2048 frame.
-    // Fill source buffer
-    //    fprintf(stderr,"DEBUG: Feeding frames to bufferqueue\n");
-    while((ret = av_buffersink_get_frame(sink,frame)) >= 0){
-      if(frame_count < 32 && frame->nb_samples == 64) { //feed frames to window graph
-	//push the frame to bufferqueue 
-	ff_bufqueue_add(NULL,frame_queue_32,frame);
-	// Uncomment to add debug information about frame
-	//     dump_frame_info(frame);
-	err = av_buffersrc_add_frame(Fsrc, frame);
-	if(err < 0) {
-	  av_frame_unref(frame);
-	  fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Not able to add frame to source buffer\n"ANSI_COLOR_RESET);
-	  break;
+	if(pkt.duration == 0){
+	  fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No duration information present in stream\n"ANSI_COLOR_RESET);
+	  return -1;
 	}
-	frame_count++;
-      }
-      else {
-	break;
+	len = avcodec_decode_audio4(dec_ctx, frame, &got_frame, &pkt);
+	if(len < 0){
+	  fprintf(stderr,ANSI_COLOR_ERROR"ERROR: while decoding\n"ANSI_COLOR_RESET);
+	}
+	if(got_frame){
+	  err = av_buffersrc_add_frame(src, frame);
+	  if(delay == -1) // difference between first frame and required pts
+	    delay = labs(frame->pts - pts); 
+	  i++;
+	  if(err < 0) {
+	    av_frame_unref(frame);
+	    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to add frame to source buffer\n"ANSI_COLOR_RESET);
+	    return err;
+	  }
+	  size = size - len;
+	}
       }
     }
-
-    frame_count = 0;
-    while(frame_count < 128){
-      // use this frame_2048 and fill it in windowing graph
-      ret = av_buffersink_get_frame(Fsink,frame_2048);
-      if(ret < 0){
-	av_strerror(ret,errstr,128);
-	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No frame in buffer sink (Fsink) Frame count %d %s\n"ANSI_COLOR_RESET,frame_count,errstr);
-	return ret;
-      }
-      
-      ret = av_buffersink_get_frame(sink,frame);
-      if(ret < 0){
-	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No more frames in the sink\n"ANSI_COLOR_RESET);
-	break;
-      }
-      //  dump_frame_info(frame);
-      //Add one frame from sink to bufferqueue
-      ff_bufqueue_get(frame_queue_32);
+  }while(frame->pts < end_pts);
+  // make frame available for overlapping and windowing
+  // frame is size of 64 samples already.
+  // feed 32 frames to filter_graph_window and collect one 2048 sample frame out of it.
+  // This process is repeated for every frame thus, 128 times we get 2048 frames.
+  // Algo: 1. Fill source buffer with 32 frames
+  //       2. Remove one frame and add another and get 2048 frame.
+  // Fill source buffer
+  //    fprintf(stderr,"DEBUG: Feeding frames to bufferqueue\n");
+  while((ret = av_buffersink_get_frame(sink,frame)) >= 0){
+    if(frame_count < 32 && frame->nb_samples == 64) { //feed frames to window graph
+      //push the frame to bufferqueue 
       ff_bufqueue_add(NULL,frame_queue_32,frame);
-      //and peek from 0 - 31 adding to Fsrc
-      for(i=0;i<32;i++){
-	frame_peek1[i] = ff_bufqueue_peek(frame_queue_32,i);
-	if(frame_peek1[i] == NULL) { 
-	  fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Queue does not have enough buffers\n"ANSI_COLOR_RESET);
-	  return -1;
-	}
-	//else if not null push the frame to buffersrc Fsrc for framing to 2048
-	//   dump_frame_info(frame_peek1[i]);    
-	frame_copy->format = frame_peek1[i]->format;
-	frame_copy->width = frame_peek1[i]->width;
-	frame_copy->height = frame_peek1[i]->height;
-	frame_copy->channels = frame_peek1[i]->channels;
-	frame_copy->channel_layout = frame_peek1[i]->channel_layout;
-	frame_copy->nb_samples = frame_peek1[i]->nb_samples;
-	//    dump_frame_info(frame_copy);    
-	ret = av_frame_get_buffer(frame_copy, 32);
-	if(ret < 0){
-	  av_strerror(ret,errstr,128);
-	  fprintf(stdout,"DEBUG: av_frame_get_buffer returned %d:\"%s\"\n",ret,errstr);
-	  return -1;
-	}
-	
-	ret = av_frame_copy(frame_copy, frame_peek1[i]);
-	if(ret < 0){
-	  av_strerror(ret,errstr,128);
-	  fprintf(stdout,"DEBUG: Frame not copied %d error \"%s\"\n",ret,errstr);
-	  return -1;
-	}
-	
-	ret = av_frame_copy_props(frame_copy,frame_peek1[i]);
-	if(ret < 0){
-	  av_strerror(ret,errstr,128);
-	  fprintf(stdout,"DEBUG: Frame metadata not copied properly %d error \"%s\"\n",ret,errstr);
-	  return -1;
-	}
-	
-	//NOTE: av_buffersrc_add_frame at last uses av_frame_free on frame supplied. Thus we supply a copy of it. So that we don't loose reference.
-	err = av_buffersrc_add_frame(Fsrc, frame_copy);
-	if(err < 0){
-	  av_strerror(err,errstr,128);
-	  fprintf(stdout,"DEBUG: Cannot add frames to Fsrc \"%s\"\n",errstr);
-	  break;
-	} 
+      // Uncomment to add debug information about frame
+      //     dump_frame_info(frame);
+      err = av_buffersrc_add_frame(Fsrc, frame);
+      if(err < 0) {
+	av_frame_unref(frame);
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Not able to add frame to source buffer\n"ANSI_COLOR_RESET);
+	break;
       }
       frame_count++;
-      av_buffersrc_add_frame(Wsrc, frame_2048);
+    }
+    else {
+      break;
+    }
+  }
+  
+  frame_count = 0;
+  while(frame_count < 128){
+    // use this frame_2048 and fill it in windowing graph
+    ret = av_buffersink_get_frame(Fsink,frame_2048);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No frame in buffer sink (Fsink) Frame count %d %s\n"ANSI_COLOR_RESET,frame_count,errstr);
+      return ret;
     }
     
-    // fprintf(stderr,ANSI_COLOR_ERROR"DEBUG: frame_count value %d\n",frame_count);
-    init_fft_params();
-    //at final graph_hann should contain 128 frames of hanned window 
-    for(i=0;i<127;i++){
-      char tempo[9];
-      ret = av_buffersink_get_frame(Wsink, frame_2048);
+    ret = av_buffersink_get_frame(sink,frame);
+    if(ret < 0){
+      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No more frames in the sink\n"ANSI_COLOR_RESET);
+      break;
+    }
+    //  dump_frame_info(frame);
+    //Add one frame from sink to bufferqueue
+    ff_bufqueue_get(frame_queue_32);
+    ff_bufqueue_add(NULL,frame_queue_32,frame);
+    //and peek from 0 - 31 adding to Fsrc
+    for(i=0;i<32;i++){
+      frame_peek1[i] = ff_bufqueue_peek(frame_queue_32,i);
+      if(frame_peek1[i] == NULL) { 
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Queue does not have enough buffers\n"ANSI_COLOR_RESET);
+	return -1;
+      }
+      //else if not null push the frame to buffersrc Fsrc for framing to 2048
+      //   dump_frame_info(frame_peek1[i]);    
+      frame_copy->format = frame_peek1[i]->format;
+      frame_copy->width = frame_peek1[i]->width;
+      frame_copy->height = frame_peek1[i]->height;
+      frame_copy->channels = frame_peek1[i]->channels;
+      frame_copy->channel_layout = frame_peek1[i]->channel_layout;
+      frame_copy->nb_samples = frame_peek1[i]->nb_samples;
+      //    dump_frame_info(frame_copy);    
+      ret = av_frame_get_buffer(frame_copy, 32);
+      if(ret < 0){
+	av_strerror(ret,errstr,128);
+	fprintf(stdout,"DEBUG: av_frame_get_buffer returned %d:\"%s\"\n",ret,errstr);
+	return -1;
+      }
+	
+      ret = av_frame_copy(frame_copy, frame_peek1[i]);
+      if(ret < 0){
+	av_strerror(ret,errstr,128);
+	fprintf(stdout,"DEBUG: Frame not copied %d error \"%s\"\n",ret,errstr);
+	return -1;
+      }
+      
+      ret = av_frame_copy_props(frame_copy,frame_peek1[i]);
+      if(ret < 0){
+	av_strerror(ret,errstr,128);
+	fprintf(stdout,"DEBUG: Frame metadata not copied properly %d error \"%s\"\n",ret,errstr);
+	return -1;
+      }
+      
+      //NOTE: av_buffersrc_add_frame at last uses av_frame_free on frame supplied. Thus we supply a copy of it. So that we don't loose reference.
+      err = av_buffersrc_add_frame(Fsrc, frame_copy);
+      if(err < 0){
+	av_strerror(err,errstr,128);
+	fprintf(stdout,"DEBUG: Cannot add frames to Fsrc \"%s\"\n",errstr);
+	break;
+      } 
+    }
+    frame_count++;
+    av_buffersrc_add_frame(Wsrc, frame_2048);
+  }
+  
+  // fprintf(stderr,ANSI_COLOR_ERROR"DEBUG: frame_count value %d\n",frame_count);
+  init_fft_params();
+  //at final graph_hann should contain 128 frames of hanned window 
+  for(i=0;i<127;i++){
+    char tempo[9];
+    ret = av_buffersink_get_frame(Wsink, frame_2048);
       if(ret < 0){
 	av_strerror(ret,errstr,128);
 	fprintf(stdout,"DEBUG: av_buffersink_get_frame returned %d:\"%s\"\n",ret,errstr);
@@ -964,7 +993,7 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
     
     //Finally log_bins_array now contains all 128x32 wavelets from which we will extract top 
     result = extract_top_wavelets(log_bins_array,200);
-    fprintf(stdout,ANSI_COLOR_YELLOW"Index %d Fingerprint for time slot: %s - %s\n"ANSI_COLOR_RESET,idx,seconds_to_pts(start_pts/INPUT_TIMEBASE.den,temp1),seconds_to_pts(end_pts/INPUT_TIMEBASE.den,temp2));
+    fprintf(stdout,ANSI_COLOR_YELLOW"Index %d Fingerprint for time slot: %s - %s\n"ANSI_COLOR_RESET,index,seconds_to_pts(start_pts/INPUT_TIMEBASE.den,temp1),seconds_to_pts(end_pts/INPUT_TIMEBASE.den,temp2));
     long num = 0;
     res_array = malloc(sizeof(uint64_t) * 25);
     for(i=0,j=0;i<100,j<25;i++){
@@ -980,16 +1009,16 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
     //    fprintf(stdout,"\n");
     
     if(current_select == 0){
-      ret = insert_entry_into_table(res_array, idx,start_pts,end_pts,delay);
+      ret = insert_entry_into_table(res_array, index,start_pts,end_pts,delay);
       if(ret < 0){
-	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to insert entry into table for index %d Error code:%d\n"ANSI_COLOR_RESET,idx,ret);
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Failed to insert entry into table for index %d Error code:%d\n"ANSI_COLOR_RESET,index,ret);
 	return -1;
       }
       //print_tables();
     }
     else if(current_select == 1){
       //search for fingerprint in tables
-      search_and_match(res_array,idx,start_pts);
+      search_and_match(res_array,index,start_pts);
       //print_tables();
     }
     start_pts = end_pts;
