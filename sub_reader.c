@@ -47,7 +47,7 @@ void add_timestamp_to_array(uint16_t index,char *time_stamp)
   temp = malloc(sizeof(uint8_t) * 13);
   if(temp == NULL)
     return;
-  printf("%s received time stamp %s\n",__FUNCTION__,time_stamp);
+  fprintf(stderr,ANSI_COLOR_DEBUG"DEBUG: INDEX %02d Time stamp %s\n"ANSI_COLOR_RESET,index,time_stamp);
   temp = strncpy(temp,time_stamp,12);
   temp[12] = '\0';
   show_pts_ms = pts_to_mseconds(temp);
@@ -57,12 +57,14 @@ void add_timestamp_to_array(uint16_t index,char *time_stamp)
  
   //This calculation may miss some of points of fingerprinting
   no_of_fp = (hide_pts_ms - show_pts_ms) / GRANUALITY;
+  if(GRANUALITY - ((hide_pts_ms - show_pts_ms) % GRANUALITY) < 100){ //if difference is less than 100 ms then it is considerable
+    no_of_fp++;
+  }
   temp_pts_ms = show_pts_ms;
   i=0;
   do{
     //send temp_pts to next function
-    create_fingerprint_by_pts(index,temp_pts_ms); 
-    fprintf(stderr,"DEBUG:PTS: %u\n",temp_pts_ms);
+    create_fingerprint_by_pts(index,temp_pts_ms);
     temp_pts_ms = temp_pts_ms + GRANUALITY;
     i++;
   }while(i<no_of_fp);
@@ -84,49 +86,50 @@ int reader(const char *file_name)
     fprintf(stderr,"Unable to open file: %s Error %d\n",file_name,errno);
     return -1;
   }
-  else{
-    fprintf(stdout,"Opening file: %s\n",file_name);
-    buf = malloc(sizeof(uint8_t) * 4);
-    buf = fgets(buf,sizeof(uint8_t) * 4,input_handle);
-    for(i=0;i<3;i++)
-      t[i] = buf[i];
-    if(t[0]==0xef && t[1]==0xbb && t[2]==0xbf){
-      //file is utf-8 type
-      // main loop for reading subtitle timings
-      printf("UTF-8 detected\n");
-    }
-    else if(t[0] == '1' && (t[1] =='\r' && t[2] == '\n') || t[1] == '\n'){
-      current.index = 1;
-    }
-    //TODO handling of other than UTF-8
-    else{
-      fprintf(stderr,"File other than UTF-8 not supported yet\nGot this buffer from file %s\n",buf);
-      free(buf);
-      return -1;
-    }
-    free(buf);
-    
-    buf = malloc(sizeof(uint8_t) * BUF_SIZE);
-    while(1){//main loop
-      buf = fgets(buf,sizeof(uint8_t) * BUF_SIZE,input_handle);
-      i = 0;
-      if(buf == NULL){
-	break;
-      }
-      else{
-	if((temp = strlen(buf)) >= 3 && isdigit(buf[i]) && buf[temp - 2]=='\r' && buf[temp - 1]=='\n'){
-	  index_buf = (index_buf ?  :atoi(&buf[i]));
-	  current.index = index_buf;
-	}
-	if((strlen(buf) == 29) && index_buf){
-	  add_timestamp_to_array(index_buf,buf);
-	  index_buf = 0;	
-	}
-      }
-    }
-    free(buf); 
+  
+  fprintf(stdout,"Opening file: %s\n",file_name);
+  buf = malloc(sizeof(uint8_t) * 4);
+  buf = fgets(buf,sizeof(uint8_t) * 4,input_handle);
+  for(i=0;i<3;i++)
+    t[i] = buf[i];
+  free(buf);
+  if(t[0]==0xef && t[1]==0xbb && t[2]==0xbf){
+    //file is utf-8 type
+    // main loop for reading subtitle timings
+    fprintf(stdout,ANSI_COLOR_DEBUG"DEBUG: UTF-8 detected\n"ANSI_COLOR_RESET);
   }
-  fclose(input_handle);
-  return 0;
+  else if(t[0] == '1' && (t[1] =='\r' && t[2] == '\n') || t[1] == '\n'){
+    buf = malloc(sizeof(uint8_t) * BUF_SIZE);
+    index_buf = 1;
+    goto label1;
+  }
+  //TODO handling of other than UTF-8
+  else{
+    fprintf(stderr,"File other than UTF-8 not supported yet\nGot this buffer from file %s\n",buf);
+    return -1;
+  }
+  
+  buf = malloc(sizeof(uint8_t) * BUF_SIZE);
+  while(1){//main loop
+  label1:    buf = fgets(buf,sizeof(uint8_t) * BUF_SIZE,input_handle);
+    i = 0;
+    if(buf == NULL){
+      break;
+    }
+    else{
+      if((temp = strlen(buf)) >= 3 && isdigit(buf[i]) && buf[temp - 2]=='\r' && buf[temp - 1]=='\n'){
+	index_buf = (index_buf ?  :atoi(&buf[i]));
+	current.index = index_buf;
+      }
+      if((strlen(buf) == 29) && index_buf){
+	add_timestamp_to_array(index_buf,buf);
+	index_buf = 0;	
+      }
+    }
+  }
+  free(buf); 
+
+fclose(input_handle);
+return 0;
 }
 
