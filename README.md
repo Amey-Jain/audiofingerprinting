@@ -48,7 +48,7 @@ Note: This project currently uses shell files to compile and manage dependencies
 
 ### Current status
 Project is not completed yet. Currently it has stable database system ready for its use. Following functionalities are yet to be added:
-* (Tool A) Matching module: Match fingerprints against each other and compare
+* (Tool A) Matching module: Match fingerprints against each other and compare- DONE
 * (Tool A) Subtitle editor: Using result set of matched fingerprints edit original subtitle file
 * (Tool B) Under development
 ## Scope
