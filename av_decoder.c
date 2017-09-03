@@ -20,9 +20,9 @@
 #include "sub_reader.h"
 
 static AVFormatContext *fmt_ctx_orig = NULL,*fmt_ctx_edited = NULL;
-static AVFormatContext *fmt_ctx = NULL;
+static AVFormatContext *fmt_ctx = NULL,*fmt_ctx_audio = NULL;
 static AVCodecContext *dec_ctx_orig = NULL, *dec_ctx_edited = NULL;
-static AVCodecContext *dec_ctx = NULL;
+static AVCodecContext *dec_ctx = NULL,*dec_ctx_audio = NULL;
 static int audio_stream_index = -1;
 static AVFilterGraph *graph_resample=NULL;
 static AVFilterGraph *graph_frame_2048=NULL;
@@ -31,6 +31,8 @@ static AVFilterContext *src=NULL,*sink=NULL;
 static AVFilterContext *Fsrc=NULL,*Fsink=NULL;
 static AVFilterContext *Wsrc=NULL,*Wsink=NULL;
 
+int NO_OF_OVERLAPS = -1;
+int audio_stream_index_audio = -1;
 char *orig_video_name = NULL;
 char *edited_video_name = NULL;
 enum AVSampleFormat INPUT_SAMPLE_FMT = -1;
@@ -40,6 +42,7 @@ static AVRational INPUT_TIMEBASE;
 static uint64_t pts_first_frame_orig = 0;
 static uint64_t pts_first_frame_edited = 0;
 uint64_t pts_first_frame = 0;
+static uint64_t pts_first_frame_audio = 0;
 static AVFrame *first_frame_orig = NULL, *first_frame_edited = NULL;
 uint16_t idx = 0;
 uint8_t current_select = -1;
@@ -511,7 +514,19 @@ int init_decoder(char *filename1,char *filename2)
       return err;
     }
   }
-  
+
+  if(GRANUALITY == 2000){
+    NO_OF_OVERLAPS = 128;
+    fprintf(stderr,ANSI_COLOR_DEBUG"DEBUG: %d set for number of overlaps\n"ANSI_COLOR_RESET,NO_OF_OVERLAPS);
+  }
+  else if(GRANUALITY == 4000){
+    NO_OF_OVERLAPS = 256;
+    fprintf(stderr,ANSI_COLOR_DEBUG"DEBUG: %d set for number of overlaps\n"ANSI_COLOR_RESET,NO_OF_OVERLAPS);
+  }
+  else{
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: %d for GRANUALITY not supported\n"ANSI_COLOR_RESET,GRANUALITY);
+    return -1;
+  }
   return 0; 
 }
 
@@ -773,7 +788,87 @@ int open_input_file(uint8_t file_select,uint8_t language)
   }
   return 0;      
 }
- 
+
+int open_audio_input_file(char *filename){
+  int ret,audio_stream_index;
+  AVCodec *dec = NULL;
+  AVDictionaryEntry *tag = NULL;
+  // this parameter needs to be set taking parameters from CLI, taking language number 1 or 2.
+  uint8_t i,j,got_frame;
+  AVFrame *frame = av_frame_alloc();
+  int err,len;
+  char errstr[128];
+  AVPacket pkt;
+  av_register_all();
+  avfilter_register_all();
+  //open input video file
+  if((ret = avformat_open_input(&fmt_ctx_audio,filename,NULL,NULL)) < 0){
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Unable to open %s\n"ANSI_COLOR_RESET,filename);
+    return ret;
+  }
+  
+  //print useful format information
+  printf("Opening format:%s\nFile:%s\nTotal %d streams in video\n",fmt_ctx_audio->iformat->name,filename,fmt_ctx_audio->nb_streams);
+  if((ret == avformat_find_stream_info(fmt_ctx_audio,NULL)) < 0){
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR:Unable to find stream info\n"ANSI_COLOR_RESET);
+    return ret;
+  }
+  //select a default audio stream index
+  ret = av_find_best_stream(fmt_ctx_audio,AVMEDIA_TYPE_AUDIO, -1, -1, &dec, 0);
+  if(ret < 0){
+    fprintf(stderr,ANSI_COLOR_ERROR"Cannot find audio stream in input\n"ANSI_COLOR_RESET);
+    return ret;
+  }
+  else if(dec == NULL){
+    fprintf(stderr,ANSI_COLOR_ERROR"Audio decoder not found\n"ANSI_COLOR_RESET);
+    return ret;
+  }
+ audio_stream_index_audio = audio_stream_index = ret; 
+  fprintf(stdout,"DEBUG: Audio stream %d selected by av_find_best_stream\n",audio_stream_index);
+  
+  /* init audio decoder */
+  dec_ctx_audio = fmt_ctx_audio->streams[audio_stream_index]->codec;
+  if((ret = avcodec_open2(dec_ctx_audio, dec, NULL)) < 0) {
+    fprintf(stderr,ANSI_COLOR_ERROR"Cannot open audio decoder\n"ANSI_COLOR_RESET);
+    return ret;
+  }
+  
+  
+  ret = av_seek_frame(fmt_ctx_audio,audio_stream_index, 0, AVSEEK_FLAG_BACKWARD); //get one frame before timing to cover all
+  // trying avformat_seek_file instead of av_seek_frame
+  //  ret = avformat_seek_file(fmt_ctx,audio_stream_index,0,start_pts,start_pts,AVSEEK_FLAG_FRAME);
+  if(ret < 0){
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: avformat_seek_file failed with error code %d\n"ANSI_COLOR_RESET,ret);
+    return ret;
+  }
+  while(1){ //read an audio frame for format specifications
+    ret = av_read_frame(fmt_ctx_audio, &pkt);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,ANSI_COLOR_ERROR"Unable to read frame:%s\n"ANSI_COLOR_RESET,errstr);
+      break;
+    }
+    if(pkt.stream_index == audio_stream_index){ 
+      got_frame = 0;
+      len = avcodec_decode_audio4(dec_ctx_audio, frame, &got_frame, &pkt);
+      if(len < 0){
+	av_strerror(len,errstr,128);
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR %s %d %s\n"ANSI_COLOR_RESET,__FUNCTION__,__LINE__,errstr);
+      }	
+      else if(got_frame){
+	pts_first_frame_audio = frame->pts;
+	printf("DEBUG: First frame PTS %lu\n",pts_first_frame_audio);
+	break;
+      }
+    }
+  }
+  
+  fprintf(stdout,"DEBUG: Time base unit:AVStream->time_base: %lu/%lu\nFrame rate %lu/%lu\n",fmt_ctx_audio->streams[audio_stream_index]->time_base.num,fmt_ctx_audio->streams[audio_stream_index]->time_base.den,dec_ctx_audio->framerate.num,dec_ctx_audio->framerate.den); //dec_ctx doesn't shows values
+  fprintf(stdout,"DEBUG: Start time in timebase units %lu\n",fmt_ctx_audio->streams[audio_stream_index]->start_time);
+  fprintf(stdout,ANSI_COLOR_BLUE"DEBUG: First read frame PTS:%lu\n"ANSI_COLOR_RESET,frame->pts);
+  return 0;
+}
+
 /*
 Read frame sequence covering 1.5 seconds from time given and buffers those frame.
 Works like loop traversing frames to frames for a duration of 1.5 seconds. Resampling 
@@ -788,7 +883,7 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   //  start_pts = start_pts/1000;
   //  start_pts += pts_first_frame;
   //  time_to_seek_ms += GRANUALITY;
-  printf("%s received index %d pts %lu\n",__FUNCTION__,index,pts);
+//  printf("%s received index %d pts %lu\n",__FUNCTION__,index,pts);
   int64_t start_pts = /*pts_first_frame +*/ pts;
   int64_t granuality = av_rescale(GRANUALITY/1000, INPUT_TIMEBASE.den,INPUT_TIMEBASE.num);
   //  end_pts += pts_first_frame;
@@ -801,9 +896,9 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   AVFrame *frame = av_frame_alloc();
   AVFrame *frame_2048 = av_frame_alloc();
   double *log_bins=NULL;
-  double *log_bins_array = (double *) malloc(sizeof(double) * 128 * 32);
+  double *log_bins_array = (double *) malloc(sizeof(double) * NO_OF_OVERLAPS * NO_OF_LOG_BINS);
   int log_bins_arr_index = 0;
-  int copy_size = 32 * sizeof(double);
+  int copy_size = NO_OF_LOG_BINS * sizeof(double);
   const struct AVFrame *frame_peek1[32];
   AVFrame *frame_copy = av_frame_alloc();
   int size,len,buf_size;
@@ -836,7 +931,6 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   //  while(end_pts < (fmt_ctx->streams[audio_stream_index]->duration + pts_first_frame)){
   //    fprintf(stdout,"Start PTS: %lu End PTS: %lu\n",start_pts,end_pts);
   do{ //outer do-while to read packets
-    
     ret = av_read_frame(fmt_ctx, &pkt);
     if(ret < 0){
       av_strerror(ret,errstr,128);
@@ -878,7 +972,7 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   // make frame available for overlapping and windowing
   // frame is size of 64 samples already.
   // feed 32 frames to filter_graph_window and collect one 2048 sample frame out of it.
-  // This process is repeated for every frame thus, 128 times we get 2048 frames.
+  // This process is repeated for every frame thus, NO_OF_OVERLAP times we get 2048 frames.
   // Algo: 1. Fill source buffer with 32 frames
   //       2. Remove one frame and add another and get 2048 frame.
   // Fill source buffer
@@ -903,7 +997,7 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   }
   
   frame_count = 0;
-  while(frame_count < 128){
+  while(frame_count < NO_OF_OVERLAPS - 1){
     // use this frame_2048 and fill it in windowing graph
     ret = av_buffersink_get_frame(Fsink,frame_2048);
     if(ret < 0){
@@ -914,7 +1008,7 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
     
     ret = av_buffersink_get_frame(sink,frame);
     if(ret < 0){
-      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No more frames in the sink\n"ANSI_COLOR_RESET);
+      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No more frames in the sink for frame count %d\n"ANSI_COLOR_RESET,frame_count);
       break;
     }
     //  dump_frame_info(frame);
@@ -967,18 +1061,23 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
       } 
     }
     frame_count++;
-    av_buffersrc_add_frame(Wsrc, frame_2048);
+    err = av_buffersrc_add_frame(Wsrc, frame_2048);
+    if(err < 0){
+      av_strerror(err,errstr,128);
+      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Cannot add frames to Wsrc for index %d \"%s\"\n",errstr,i);
+      break;
+    } 
   }
   
   // fprintf(stderr,ANSI_COLOR_ERROR"DEBUG: frame_count value %d\n",frame_count);
   init_fft_params();
-  //at final graph_hann should contain 128 frames of hanned window 
-  for(i=0;i<127;i++){
+  //at final graph_hann should contain NO_OF_OVERLAPS frames of hanned window 
+  for(i=0;i<NO_OF_OVERLAPS-1;i++){
     char tempo[9];
     ret = av_buffersink_get_frame(Wsink, frame_2048);
       if(ret < 0){
 	av_strerror(ret,errstr,128);
-	fprintf(stdout,"DEBUG: av_buffersink_get_frame returned %d:\"%s\"\n",ret,errstr);
+	fprintf(stdout,ANSI_COLOR_ERROR"ERROR: av_buffersink_get_frame for index %d returned %d:\"%s\"\n",i,ret,errstr);
 	return -1;
       }
 
@@ -988,13 +1087,13 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
 	break;
       }
       memcpy(&log_bins_array[log_bins_arr_index],log_bins,copy_size);
-      log_bins_arr_index = log_bins_arr_index + 32;
+      log_bins_arr_index = log_bins_arr_index + NO_OF_LOG_BINS;
     }
     
-    //Finally log_bins_array now contains all 128x32 wavelets from which we will extract top 
-    result = extract_top_wavelets(log_bins_array,200);
-    fprintf(stdout,ANSI_COLOR_YELLOW"Index %d Fingerprint for time slot: %s - %s\n"ANSI_COLOR_RESET,index,seconds_to_pts(start_pts/INPUT_TIMEBASE.den,temp1),seconds_to_pts(end_pts/INPUT_TIMEBASE.den,temp2));
-    long num = 0;
+    //Finally log_bins_array now contains all NO_OF_OVERLAPS x NO_OF_TOP_WAVELETS wavelets from which we will extract top 
+  result = extract_top_wavelets(log_bins_array,NO_OF_TOP_WAVELETS);
+  fprintf(stdout,ANSI_COLOR_YELLOW"Index %d Fingerprint for time slot: %s - %s\n"ANSI_COLOR_RESET,index,seconds_to_pts(start_pts/INPUT_TIMEBASE.den,temp1),seconds_to_pts(end_pts/INPUT_TIMEBASE.den,temp2));
+  long num = 0;
     res_array = malloc(sizeof(uint64_t) * 25);
     for(i=0,j=0;i<100,j<25;i++){
       if((i+1) % 4 == 0){
@@ -1040,6 +1139,46 @@ int create_fingerprint_by_pts(uint16_t index,uint64_t pts)
   return 0;
 }
 
+int create_packet_timings(){
+  int ret,size,got_frame,len;
+  AVPacket pkt;
+  AVFrame *frame = av_frame_alloc();
+  char errstr[128];
+  printf("%s called\n",__FUNCTION__);
+  ret = av_seek_frame(fmt_ctx_audio,audio_stream_index_audio, 0, AVSEEK_FLAG_BACKWARD); //get one frame before timing to cover all
+  if(ret < 0){
+    fprintf(stderr,ANSI_COLOR_ERROR"ERROR: avformat_seek_file failed with error code %d\n"ANSI_COLOR_RESET,ret);
+    return ret;
+  }
+  
+  do{ 
+    uint64_t prev;
+    ret = av_read_frame(fmt_ctx_audio, &pkt);
+    if(ret < 0){
+      av_strerror(ret,errstr,128);
+      fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Unable to read frame:%s \n"ANSI_COLOR_RESET,errstr);
+      //	break;
+      if(ret == AVERROR_EOF)
+	return ret;
+    }
+    if(pkt.stream_index == audio_stream_index_audio){ // processing audio packets
+      if(pkt.size <=0){
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: Packet has size zero or less\n"ANSI_COLOR_RESET);
+	return -1;
+      }
+      if(pkt.pts == AV_NOPTS_VALUE){
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No PTS information present in stream\n"ANSI_COLOR_RESET);
+	return -1;
+      }
+      if(pkt.duration == 0){
+	fprintf(stderr,ANSI_COLOR_ERROR"ERROR: No duration information present in stream\n"ANSI_COLOR_RESET);
+	return -1;
+      }
+     
+      fprintf(stdout,ANSI_COLOR_DEBUG"DEBUG: Packet PTS %lu Duration %lu\n",pkt.pts,pkt.duration);
+    }
+  } while(pkt.pts < fmt_ctx_audio->streams[audio_stream_index_audio]->duration + pts_first_frame_audio);
+}
 
 
 void close_filter()

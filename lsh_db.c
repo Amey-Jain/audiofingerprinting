@@ -15,6 +15,9 @@ static struct table *tables[25];
 struct votes r_set; 
 static struct lookup_table *indices[MAX_INDEXES]; //Index lookup table for getting index values when required
 static uint16_t candidate[30];
+static uint16_t sum_fp_match;
+static uint16_t ctr_fp_match_avg;
+
 
 int callback_debug(void *p, int *result_columns, char **col_text, char **col_names){
   int i = 0;
@@ -259,8 +262,8 @@ uint64_t match_cur_bitwise(uint64_t *result,uint16_t index){
   return ctr;
 }
 
-int search_and_match(uint64_t *result,uint16_t checking_index,uint64_t start_pts){
-  int i,j,ctr,k,low_index_ctr=0,ret;
+int search_and_match(uint64_t *result,uint16_t check_index,uint64_t start_pts){
+  int i,j,ctr,k,low_index_ctr=0,ret,temp3=0;
   uint16_t entries_ctr,index_ctr;
   uint64_t ret2;
   char *temp1=NULL,*temp2=NULL;
@@ -302,15 +305,22 @@ int search_and_match(uint64_t *result,uint16_t checking_index,uint64_t start_pts
       uint16_t temp = r_set.indexes[i];
       ret = match_cur(result,temp);
       //      fprintf(stdout,ANSI_COLOR_DEBUG"DEBUG: %d/25 signatures matched\n",ret);
-      if(ret > 10){
+      if(ret > 8){
 	ret2 = match_cur_bitwise(result,temp);
 	//	fprintf(stdout,ANSI_COLOR_DEBUG"DEBUG: %d hamming distance\n",ret2);
-	if(ret2 < 20)
+	if(ret2 < 20){
 	  //if(300 + (start_pts/1000) > indices[r_set.indexes[i]]->start_pts/1000) // timings greater than 3 minute from edited are excluded
-	    printf("%f match found with index\t%d\tHamming distance sum:%lu\t\t%s\t-\t%s\n",(float)ret/25,r_set.indexes[i],ret2,seconds_to_pts(indices[r_set.indexes[i]]->start_pts/1000,temp1),seconds_to_pts(indices[r_set.indexes[i]]->end_pts/1000,temp2));
+	  if(start_pts < indices[r_set.indexes[i]]->start_pts && (start_pts + (LONGEST_STRIDE * 1000) > indices[r_set.indexes[i]]->start_pts)){
+  	  	    printf("%f match found with index\t%d\tHamming distance sum:%lu\t\t%s\t-\t%s\n",(float)ret/25,r_set.indexes[i],ret2,seconds_to_pts(indices[r_set.indexes[i]]->start_pts/1000,temp1),seconds_to_pts(indices[r_set.indexes[i]]->end_pts/1000,temp2));
+		    temp3++;
+		}
+	}
       }
     }
-  printf("\n");
+  if(temp3)
+    ctr_fp_match_avg++;
+  sum_fp_match = sum_fp_match + temp3;  
+  printf(ANSI_COLOR_MAGENTA"Avg match count for fingerprints %f No of fingerprints %f\n"ANSI_COLOR_RESET,(float) sum_fp_match/ctr_fp_match_avg,(float) ctr_fp_match_avg/check_index);
   return 0;
 }
 

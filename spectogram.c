@@ -24,7 +24,7 @@ double *process_av_frame(AVFrame *frame){
   out = fft_av_frame(frame);
   spec = out;
   log_bins = extract_log_bins(spec,log_frequencies);
-  decompose_array(log_bins,32);
+  decompose_array(log_bins,NO_OF_LOG_BINS);
   return log_bins;
 }
   
@@ -72,11 +72,11 @@ int *generate_log_frequencies(int sample_rate){
   double logMin = log2f(318);
   double logMax = log2f(2000);
 
-  double delta = (logMax - logMin)/32; //32 is number of log bins that we require
+  double delta = (logMax - logMin)/NO_OF_LOG_BINS; //32 is number of log bins that we require
   int *indexes,i;
   double accDelta = 0;
-  indexes = (int *) malloc(sizeof(int) * 33);
-  for (i=0;i <= 32;i++){
+  indexes = (int *) malloc(sizeof(int) * (NO_OF_LOG_BINS + 1));
+  for (i=0;i <= NO_OF_LOG_BINS ;i++){
     int freq = (int) pow(2,logMin + accDelta);
     accDelta += delta;
     indexes[i] = frequency_to_spectrum_index(freq, sample_rate, 2048);
@@ -99,9 +99,9 @@ double *extract_log_bins(double *spec,int *log_frequency_index)
 {
   int width = 1024; // 2048/2
   double *sum_freq;
-  sum_freq = (double *) malloc(sizeof(double) * 32);
+  sum_freq = (double *) malloc(sizeof(double) * NO_OF_LOG_BINS);
   int i,j;
-  for(i=0; i < 32; i++){
+  for(i=0;i<NO_OF_LOG_BINS;i++){
     int low_bound = log_frequency_index[i];
     int higher_bound = log_frequency_index[i + 1];
     sum_freq[i] = 0;
