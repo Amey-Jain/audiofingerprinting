@@ -2,6 +2,8 @@
 #define CONFIG
 #endif
 
+#include <inttypes.h>
+#include <stdint.h>
 #define BUF_SIZE 30
 // any changes made here should also be made to add_timestamp_to_array function
 #define GRANUALITY 2000 // in miliseconds
@@ -9,7 +11,6 @@
 #define LLONG uint32_t 
 #define SAMPLE_PER_SUB_FP 2048 //number of samples to be processed for one sub fingerprint
 #define VOTING_THRESHOLD 3
-
 #define ANSI_COLOR_ERROR     "\x1b[31m"
 #define ANSI_COLOR_DEBUG   "\x1b[32m"
 #define ANSI_COLOR_YELLOW  "\x1b[33m"
@@ -18,4 +19,9 @@
 #define ANSI_COLOR_CYAN    "\x1b[36m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 #define DEBUG 0
+ 
+extern int NO_OF_LOG_BINS;
+extern int NO_OF_TOP_WAVELETS;
+extern uint64_t LONGEST_STRIDE;
+extern int NO_OF_OVERLAPS;
  
