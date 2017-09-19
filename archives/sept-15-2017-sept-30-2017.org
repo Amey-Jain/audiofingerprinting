@@ -1,0 +1,63 @@
+#+TITLE: September 15, 2017 - September 30, 2017
+#+AUTHOR: Amey Jain
+#+EMAIL: amey.jain7@gmail.com
+** Scrum board
+#+BEGIN:
+| Todo | in progress | done |
+|------+-------------+------|
+|      |           1 |      |
+|      |           2 |      |
+|    3 |             |      |
+#+END:
+** Task list
+#+BEGIN: 
+| task id | task                  | estimated | actual |
+|---------+-----------------------+-----------+--------|
+|       1 | computer networks     |     15.00 | --     |
+|       2 | mfcc design on octave |      3.00 | --     |
+|       3 | operating systems     |     10.00 | --     |
+#+END:
+** Tasks
+*** IN_PROGRESS computer networks 
+    :CLOSED: [2017-09-16 Sat 3:00]
+    :REOPEND: [2017-09-18 Mon 15:00] 
+    :PROPERTIES:
+    :ESTIMATED: 15.00
+    :ACTUAL:
+    :ID: 1
+    :END:      
+:LOGBOOK:4
+CLOCK: [2017-09-18 Mon 16:06]--[2017-09-19 Tue 10:02] => 17:56
+CLOCK: [2017-09-18 Mon 15:00]--[2017-09-18 Mon 15:20] =>  0:20
+CLOCK: [2017-09-15 Fri 22:30]--[2017-09-16 Sat 03:00] =>  4:30
+CLOCK: [2017-09-15 Fri 12:06]--[2017-09-15 Fri 12:44] =>  0:38
+CLOCK: [2017-09-15 Fri 10:16]--[2017-09-15 Fri 11:12] =>  0:56
+:END:
+
+*** IN_PROGRESS mfcc design on octave
+**** Basic tasks on feature extraction using mfcc
+1. Downsample audio signal to 8kHz
+2. Spectral analysis of audio signal using rectangular windows and mel filterbank with 33 channels
+3. Binarization of spectogram, preserving peaks - convolution masks to binarize the spectogram
+    :CLOSED:   
+    :PROPERTIES:
+    :ESTIMATED: 3.00
+    :ACTUAL: --
+    :ID: 2
+    :END:
+:LOGBOOK:
+CLOCK: [2017-09-19 Tue 10:02]
+CLOCK: [2017-09-18 Mon 09:33]--[2017-09-18 Mon 10:00] =>  0:27
+
+
+:END:      
+
+*** TODO operating systems
+    :CLOSED:
+    :PROPERTIES:
+    :ESTIMATED: 10.00
+    :ACTUAL: 
+    :ID: 3
+    :END:
+:LOGBOOK:
+:END:
