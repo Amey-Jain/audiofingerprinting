@@ -1,0 +1,21 @@
+#+TITLE: October 4, 2017 - October 20, 2017
+#+AUTHOR: Amey Jain
+#+EMAIL: amey.jain7@gmail.com
+** Scrum board
+#+BEGIN
+| todo | in progress | done |
+|------+-------------+------|
+| 1    |             |      |
+#+END
+** Task list
+| task id | task                                              | estimated | actual |
+|       1 | completing tulyakalan with new fingerprint system | 1:30      |        |
+** Tasks
+*** Completing tulyakalan with new fingerprint system
+    :PROPERTIES:
+    :ESTIMATED: 1:30
+    :ACTUAL:
+    :END:
+    :LOGBOOK:
+    CLOCK: [2017-10-04 Wed 12:58]
+    
