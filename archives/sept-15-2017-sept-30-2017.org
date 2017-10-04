@@ -27,7 +27,7 @@
     :ID: 1
     :END:      
 :LOGBOOK:4
-CLOCK: [2017-09-18 Mon 16:06]--[2017-09-19 Tue 10:02] => 17:56
+CLOCK: [2017-09-18 Mon 16:06]--[2017-09-18 Mon 17:02] =>  0:56
 CLOCK: [2017-09-18 Mon 15:00]--[2017-09-18 Mon 15:20] =>  0:20
 CLOCK: [2017-09-15 Fri 22:30]--[2017-09-16 Sat 03:00] =>  4:30
 CLOCK: [2017-09-15 Fri 12:06]--[2017-09-15 Fri 12:44] =>  0:38
@@ -46,13 +46,10 @@ CLOCK: [2017-09-15 Fri 10:16]--[2017-09-15 Fri 11:12] =>  0:56
     :ID: 2
     :END:
 :LOGBOOK:
-CLOCK: [2017-09-19 Tue 10:02]
 CLOCK: [2017-09-18 Mon 09:33]--[2017-09-18 Mon 10:00] =>  0:27
-
-
 :END:      
 
-*** TODO operating systems
+*** CLOSED operating systems
     :CLOSED:
     :PROPERTIES:
     :ESTIMATED: 10.00
