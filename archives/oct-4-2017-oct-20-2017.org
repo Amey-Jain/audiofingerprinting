@@ -8,14 +8,51 @@
 | 1    |             |      |
 #+END
 ** Task list
-| task id | task                                              | estimated | actual |
-|       1 | completing tulyakalan with new fingerprint system | 1:30      |        |
+| task id | task                                         | estimated | actual |
+|       1 | Retrospective view on previous system        |      1:30 |   4:02 |
+|       2 | reading and selecting a proper hash function |      2:00 |   2:29 |
+|       3 | writing code for selected hash function      |      2:00 |        |
+
 ** Tasks
-*** Completing tulyakalan with new fingerprint system
+*** Retrospective view on previous system
     :PROPERTIES:
     :ESTIMATED: 1:30
-    :ACTUAL:
+    :ACTUAL: 4:02
     :END:
     :LOGBOOK:
-    CLOCK: [2017-10-04 Wed 12:58]
-    
+    CLOCK: [2017-10-06 Fri 19:54]--[2017-10-06 Fri 20:25] =>  0:31
+    CLOCK: [2017-10-06 Fri 13:43]--[2017-10-06 Fri 14:02] =>  0:19
+    CLOCK: [2017-10-06 Fri 11:47]--[2017-10-06 Fri 13:00] =>  1:13
+    CLOCK: [2017-10-06 Fri 08:30]--[2017-10-06 Fri 09:27] =>  0:57
+    CLOCK: [2017-10-04 Wed 12:58]--[2017-10-04 Wed 14:00] =>  1:02
+    :END:      
+**** Report
+We have to change our approach. In most of fingerprint recognition systems back, major objective was to recognize a song from a database. Whereas our essence is to capture that part of video and create fingerprint from it which will not only identify it uniquely but also unable to match parts among query. In previous approach we were storing signs of log bins and create fingeprints from them. In current approach we will take into account magnitude of log bins and also their RELATIVE positions among themseleves. To be noted position is only relative among themselves. 
+
+*** Reading and selecting a proper hash function
+    :PROPERTIES:
+    :CLOSED: [2018-10-09 Mon 08:40]
+    :ESTIMATED: 2:00
+    :ACTUAL: 2:29
+    :END:
+    :LOGBOOK:
+    CLOCK: [2017-10-09 Mon 08:26]--[2017-10-09 Mon 08:40] =>  0:14
+    CLOCK: [2017-10-09 Mon 07:20]--[2017-10-09 Mon 08:00] =>  0:40
+    CLOCK: [2017-10-08 Sun 17:33]--[2017-10-08 Sun 18:07] =>  0:34
+    CLOCK: [2017-10-08 Sun 16:05]--[2017-10-08 Sun 17:06] =>  1:01
+    :END:      
+**** Report    
+We will be treating fingerprints in a 3-D space. 
+Time (in units of frame numbers)            - x axis
+Frequency (in units of frequency log bins)  - y axis
+Amplitude                                   - z axis
+
+Two points will be represented based on time difference, angle made by line connecting them on xz plane and angle made by them on xy plane. Angle will be represented as integer value (possibly divided by pie and multiplied by 360) so as to store and manipulate easily.
+*** Writing code for selected hash function
+    :PROPERTIES:
+    :CLOSED:
+    :ESTIMATED: 2:00
+    :ACTUAL: 
+    :END:
+    :LOGBOOK:
+    :END:
