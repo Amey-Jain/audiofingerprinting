@@ -2,14 +2,12 @@
 #+AUTHOR: Amey Jain
 #+EMAIL: amey.jain7@gmail.com
 ** Scrum board
-#+BEGIN
 | todo | in progress | done | closed |
 |------+-------------+------+--------|
 |      |             |    1 |        |
 |      |             |    2 |        |
 |      |             |    3 |        |
 |      |             |      |      4 |
-#+END
 ** Task list
 | task id | task                                         | estimated | actual |
 |       1 | Retrospective view on previous system        |      1:30 |   4:02 |
