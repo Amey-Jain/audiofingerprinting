@@ -3,18 +3,21 @@
 #+EMAIL: amey.jain7@gmail.com
 ** Scrum board
 #+BEGIN
-| todo | in progress | done |
-|------+-------------+------|
-| 1    |             |      |
+| todo | in progress | done | closed |
+|------+-------------+------+--------|
+|      |             |    1 |        |
+|      |             |    2 |        |
+|      |             |    3 |        |
+|      |             |      |      4 |
 #+END
 ** Task list
 | task id | task                                         | estimated | actual |
 |       1 | Retrospective view on previous system        |      1:30 |   4:02 |
 |       2 | reading and selecting a proper hash function |      2:00 |   2:29 |
-|       3 | writing code for selected hash function      |      2:00 |        |
-
+|       3 | writing code for selected hash function      |      2:00 |   4:02 |
+|       4 | compiling and testing code written           |      3:00 |   6:21 |
 ** Tasks
-*** Retrospective view on previous system
+*** DONE Retrospective view on previous system
     :PROPERTIES:
     :ESTIMATED: 1:30
     :ACTUAL: 4:02
@@ -29,7 +32,7 @@
 **** Report
 We have to change our approach. In most of fingerprint recognition systems back, major objective was to recognize a song from a database. Whereas our essence is to capture that part of video and create fingerprint from it which will not only identify it uniquely but also unable to match parts among query. In previous approach we were storing signs of log bins and create fingeprints from them. In current approach we will take into account magnitude of log bins and also their RELATIVE positions among themseleves. To be noted position is only relative among themselves. 
 
-*** Reading and selecting a proper hash function
+*** DONE Reading and selecting a proper hash function
     :PROPERTIES:
     :CLOSED: [2018-10-09 Mon 08:40]
     :ESTIMATED: 2:00
@@ -48,11 +51,40 @@ Frequency (in units of frequency log bins)  - y axis
 Amplitude                                   - z axis
 
 Two points will be represented based on time difference, angle made by line connecting them on xz plane and angle made by them on xy plane. Angle will be represented as integer value (possibly divided by pie and multiplied by 360) so as to store and manipulate easily.
-*** Writing code for selected hash function
+*** DONE Writing code for selected hash function
     :PROPERTIES:
-    :CLOSED:
+    :CLOSED: [2017-10-12 Thu 07:02]  
     :ESTIMATED: 2:00
-    :ACTUAL: 
+    :ACTUAL: 4:41 
     :END:
     :LOGBOOK:
+    CLOCK: [2017-10-12 Thu 06:46]--[2017-10-12 Thu 07:02] =>  0:16
+    CLOCK: [2017-10-11 Wed 20:30]--[2017-10-11 Wed 21:00] =>  0:30
+    CLOCK: [2017-10-11 Wed 10:30]--[2017-10-11 Wed 11:15] =>  0:45
+    CLOCK: [2017-10-11 Wed 06:14]--[2017-10-11 Wed 06:50] =>  0:36
+    CLOCK: [2017-10-10 Tue 11:08]--[2017-10-10 Tue 11:33] =>  0:25
+    CLOCK: [2017-10-09 Mon 23:31]--[2017-10-10 Tue 00:35] =>  1:04
+    CLOCK: [2017-10-09 Mon 19:17]--[2017-10-09 Mon 19:38] =>  0:21
+    CLOCK: [2017-10-09 Mon 11:00]--[2017-10-09 Mon 11:44] =>  0:44
     :END:
+*** IN_PROGRESS Compiling and testing code written 
+    :PROPERTIES:
+    :CLOSED: [2017-10-18 Sun 22:00]
+    :ESTIMATED: 3:00
+    :ACTUAL: 6:23
+    :END:
+    :LOGBOOK:
+    CLOCK: [2017-10-18 Wed 10:00]--[2017-10-18 Wed 10:40] =>  0:40
+    CLOCK: [2017-10-17 Tue 11:10]--[2017-10-17 Tue 11:50] =>  0:40
+    CLOCK: [2017-10-17 Tue 10:20]--[2017-10-17 Tue 10:50] =>  0:30
+    CLOCK: [2017-10-17 Tue 08:47]--[2017-10-17 Tue 09:12] =>  0:25
+    CLOCK: [2017-10-17 Tue 08:08]--[2017-10-17 Tue 08:38] =>  0:30
+    CLOCK: [2017-10-16 Mon 10:22]--[2017-10-16 Mon 10:50] =>  0:28
+    CLOCK: [2017-10-16 Mon 08:45]--[2017-10-16 Mon 09:36] =>  0:51
+    CLOCK: [2017-10-15 Sun 10:14]--[2017-10-15 Sun 10:37] =>  0:23
+    CLOCK: [2017-10-15 Sun 09:30]--[2017-10-15 Sun 10:14] =>  0:44
+    CLOCK: [2017-10-15 Sun 07:35]--[2017-10-15 Sun 08:35] =>  1:00
+    CLOCK: [2017-10-12 Thu 07:04]--[2017-10-12 Thu 07:16] =>  0:12
+    :END:      
+**** DONE Run behind improper working of find and partion functions. 
+**** DONE Insight at angles
