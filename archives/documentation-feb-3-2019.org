@@ -1,0 +1,16 @@
+#+TITLE: Documentation 
+#+AUTHOR: Amey Jain
+#+EMAIL: amey.jain7@gmail.com
+** Scrum board
+** Task list
+** Tasks
+*** Start documenting source files
+    :LOGBOOK:
+    :END:
+*** Documenting theory papers for research
+    :LOGBOOK:
+    :END:
+*** Make overall diagram with small gists of functionality and modules, files and function connected to it
+    :LOGBOOK:
+    :END: 
+ 

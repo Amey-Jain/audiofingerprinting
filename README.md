@@ -51,6 +51,10 @@ Project is not completed yet. Currently it has stable database system ready for 
 * (Tool A) Matching module: Match fingerprints against each other and compare- DONE
 * (Tool A) Subtitle editor: Using result set of matched fingerprints edit original subtitle file
 * (Tool B) Under development
+
+### TODO
+* Make a .org file for each todo and treat it as a sprint
+ - [ ] Documenting source code and theory (archives/documentation-feb-2019.org)
 ## Scope
 Apart from synchronizing subtitle files this project can be used in lot of other places. It can be used for duplicate song detection and water marking purposes also. It can also be upgraded to provide services like acoustid and musicbrainz in future.
 
